@@ -5,12 +5,21 @@ set -euo pipefail
 APP_DIR=/opt/fiftyfm
 ENV_FILE=/etc/fiftyfm/env
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+PYTHON="${PYTHON:-python3}"
 
-echo "Installing fiftyfm from $REPO_DIR to $APP_DIR"
+if ! "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+    echo "error: fiftyfm needs Python >= 3.11; '$PYTHON' is $("$PYTHON" -V 2>&1)." >&2
+    echo "Install a newer Python (e.g. apt install python3.11 python3.11-venv" >&2
+    echo "via the deadsnakes PPA on Ubuntu, or dnf install python3.11) and" >&2
+    echo "re-run as: PYTHON=python3.11 sudo -E ./install.sh" >&2
+    exit 1
+fi
+
+echo "Installing fiftyfm from $REPO_DIR to $APP_DIR using $PYTHON"
 mkdir -p "$APP_DIR"
 rm -rf "$APP_DIR/src"
 cp -r "$REPO_DIR/src" "$REPO_DIR/pyproject.toml" "$APP_DIR/"
-python3 -m venv "$APP_DIR/.venv"
+"$PYTHON" -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install --quiet --upgrade "$APP_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
