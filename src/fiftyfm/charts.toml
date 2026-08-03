@@ -1,0 +1,95 @@
+[schedule]
+start_date = 1976-01-03
+weeks_per_run = 3
+# Priority lists for week slots 1-3. Week 4 (and a 5th run in a month)
+# draws from the wildcard pool: every available chart not taken by a slot.
+slots = [
+    ["hot-100"],
+    ["mainstream-rock", "soul"],
+    ["rap", "soul", "country"],
+]
+
+[[charts]]
+id = "hot-100"
+slug = "hot-100"
+display_name = "Hot 100"
+available_from = 1958-08-04
+
+[[charts]]
+id = "soul"
+slug = "r-b-hip-hop-songs"
+display_name = "Hot Soul Singles"
+available_from = 1958-10-20
+
+[[charts]]
+id = "country"
+slug = "country-songs"
+display_name = "Hot Country Singles"
+available_from = 1958-10-20
+
+[[charts]]
+id = "easy-listening"
+slug = "adult-contemporary"
+display_name = "Easy Listening"
+available_from = 1961-07-17
+
+[[charts]]
+id = "disco"
+slug = "dance-club-play-songs"
+display_name = "National Disco Action Top 30"
+available_from = 1976-08-28
+available_until = 2020-03-28
+
+[[charts]]
+id = "mainstream-rock"
+slug = "hot-mainstream-rock-tracks"
+display_name = "Top Tracks"
+available_from = 1981-03-21
+
+[[charts]]
+id = "latin"
+slug = "latin-songs"
+display_name = "Hot Latin Songs"
+available_from = 1986-09-06
+
+[[charts]]
+id = "modern-rock"
+slug = "alternative-airplay"
+display_name = "Modern Rock Tracks"
+available_from = 1988-09-10
+
+[[charts]]
+id = "rap"
+slug = "rap-song"
+display_name = "Hot Rap Songs"
+available_from = 1989-03-11
+
+[[charts]]
+id = "pop"
+slug = "pop-songs"
+display_name = "Mainstream Top 40"
+available_from = 1992-10-03
+
+[[charts]]
+id = "adult-top-40"
+slug = "adult-pop-songs"
+display_name = "Adult Top 40"
+available_from = 1996-03-16
+
+[[charts]]
+id = "hot-rock"
+slug = "hot-rock-songs"
+display_name = "Hot Rock Songs"
+available_from = 2009-06-20
+
+[[charts]]
+id = "dance-electronic"
+slug = "dance-electronic-songs"
+display_name = "Hot Dance/Electronic Songs"
+available_from = 2013-01-26
+
+[[charts]]
+id = "global-200"
+slug = "billboard-global-200"
+display_name = "Billboard Global 200"
+available_from = 2020-09-19
