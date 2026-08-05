@@ -84,7 +84,7 @@ def test_create_playlist_flow():
             "external_urls": {"spotify": "https://open.spotify.com/playlist/pl1"},
         })
     )
-    session.handlers[("POST", "https://api.spotify.com/v1/playlists/pl1/tracks")] = (
+    session.handlers[("POST", "https://api.spotify.com/v1/playlists/pl1/items")] = (
         lambda kw: FakeResponse(201, {"snapshot_id": "snap"})
     )
     url = client.create_playlist("Name", "Desc", ["spotify:track:a", "spotify:track:b"])

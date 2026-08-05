@@ -91,7 +91,7 @@ class SpotifyClient:
         if uris:
             self._call(
                 "POST",
-                f"{API}/playlists/{playlist['id']}/tracks",
+                f"{API}/playlists/{playlist['id']}/items",
                 json={"uris": uris},
             )
         return playlist["external_urls"]["spotify"]
