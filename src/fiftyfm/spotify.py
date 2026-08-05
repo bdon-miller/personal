@@ -83,10 +83,9 @@ class SpotifyClient:
         return None
 
     def create_playlist(self, name: str, description: str, uris: list[str]) -> str:
-        me = self._call("GET", f"{API}/me")
         playlist = self._call(
             "POST",
-            f"{API}/users/{me['id']}/playlists",
+            f"{API}/me/playlists",
             json={"name": name, "description": description, "public": True},
         )
         if uris:

@@ -78,10 +78,7 @@ def test_find_track_none_when_no_results():
 def test_create_playlist_flow():
     session = FakeSession()
     client = make_client(session)
-    session.handlers[("GET", "https://api.spotify.com/v1/me")] = (
-        lambda kw: FakeResponse(200, {"id": "user1"})
-    )
-    session.handlers[("POST", "https://api.spotify.com/v1/users/user1/playlists")] = (
+    session.handlers[("POST", "https://api.spotify.com/v1/me/playlists")] = (
         lambda kw: FakeResponse(201, {
             "id": "pl1",
             "external_urls": {"spotify": "https://open.spotify.com/playlist/pl1"},
@@ -92,7 +89,7 @@ def test_create_playlist_flow():
     )
     url = client.create_playlist("Name", "Desc", ["spotify:track:a", "spotify:track:b"])
     assert url == "https://open.spotify.com/playlist/pl1"
-    create_call = next(c for c in session.calls if "/users/user1/playlists" in c[1])
+    create_call = next(c for c in session.calls if "/me/playlists" in c[1])
     assert create_call[2]["json"]["public"] is True
 
 
