@@ -6,13 +6,11 @@ from pathlib import Path
 from typing import Mapping
 
 from .chart_source import ChartSource
-from .config import Config
+from .config import TOP_N, Config
 from .discord import human_date, post_failure, post_playlist, songs_csv
 from .schedule import advance, select_chart, snap_to_saturday, week_of_month
 from .spotify import SpotifyClient, SpotifyError
 from .state import load_state, run_key, save_state
-
-TOP_N = 40
 
 
 def playlist_name(display_name: str, chart_date: date) -> str:

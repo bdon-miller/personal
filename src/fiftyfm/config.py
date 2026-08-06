@@ -6,6 +6,8 @@ from datetime import date
 from importlib import resources
 from pathlib import Path
 
+TOP_N = 40
+
 
 @dataclass(frozen=True)
 class ChartDef:
