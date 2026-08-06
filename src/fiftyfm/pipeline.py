@@ -97,7 +97,7 @@ def run(
         else:
             matched = record.get("matched", len(songs))
 
-        notify(
+        thread_id = notify(
             webhook,
             thread_title=name,
             chart_name=chart.display_name,
@@ -109,6 +109,9 @@ def run(
             csv_data=songs_csv(songs).encode(),
         )
         state.completed[key]["posted"] = True
+        if thread_id:
+            state.completed[key]["thread_id"] = thread_id
+        state.last_posted_key = key
         state.cursor = advance(state.cursor, config.weeks_per_run)
         if week >= 4:
             state.wildcard_index += 1

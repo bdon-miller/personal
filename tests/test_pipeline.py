@@ -258,3 +258,34 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     assert st.completed[wildcard_key]["posted"] is True  # original record resumed
     assert posts[0]["chart_name"] == "Easy Listening"
     assert st.cursor == date(1976, 1, 24)  # cursor advanced after resume
+
+
+def test_thread_id_and_last_posted_key_are_recorded(tmp_path):
+    state_path = tmp_path / "state.json"
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),  # week 1 -> hot-100
+        notify=lambda *a, **k: "99887766",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    assert st.completed[key]["thread_id"] == "99887766"
+    assert st.last_posted_key == key
+
+
+def test_missing_thread_id_is_not_fatal(tmp_path):
+    # An older webhook response, or one without a body, still posts fine.
+    state_path = tmp_path / "state.json"
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: None,
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    assert "thread_id" not in st.completed[key]
+    assert st.last_posted_key == key
