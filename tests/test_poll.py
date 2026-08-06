@@ -229,6 +229,29 @@ def test_run_poll_slices_to_top_40(tmp_path):
     assert posted[0]["answers"][0] == "Song 40 — Artist 40"
 
 
+def test_poll_skips_unconfigured_chart(tmp_path, capsys):
+    """A chart removed from charts.toml must not crash the next poll run."""
+    from fakes import FakeSource  # tests/ is on sys.path; match existing imports
+
+    from fiftyfm.config import load_config
+    from fiftyfm.poll import run_poll
+    from fiftyfm.state import State, save_state
+
+    path = tmp_path / "state.json"
+    state = State(cursor=date(1976, 1, 3))
+    state.last_posted_key = "easy-listening@1976-01-03"
+    state.completed["easy-listening@1976-01-03"] = {
+        "posted": True, "thread_id": "t1", "playlist_url": "u", "week": 4,
+    }
+    save_state(path, state)
+    rc = run_poll(
+        load_config(), path, {"DISCORD_WEBHOOK_URL": "hook"},
+        FakeSource(songs=[]), dry_run=True,
+    )
+    assert rc == 0
+    assert "no longer configured" in capsys.readouterr().out
+
+
 def test_recap_text_names_both_winners():
     text = recap_text(
         {"Convoy — C.W. McCall": 4, "Love Hangover — Diana Ross": 11},

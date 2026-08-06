@@ -43,11 +43,11 @@ def test_skip_posts_an_alternate_and_leaves_the_cursor_alone(tmp_path):
         notify_failure=lambda *a, **k: None,
     )
     assert code == 0
-    assert posts[0]["chart_name"] == "Easy Listening"
+    assert posts[0]["chart_name"] == "Oricon Weekly Singles (Shōwa)"
     assert posts[0]["chart_date"] == FEB14
     st = load_state(path, default_cursor=CFG.start_date)
     assert st.cursor == MAR6                      # unchanged
-    assert st.last_posted_key == run_key("easy-listening", FEB14)
+    assert st.last_posted_key == run_key("oricon-showa", FEB14)
     assert st.completed[st.last_posted_key]["thread_id"] == "tid-new"
     assert st.completed[run_key("country", FEB14)]["posted"] is True
     assert st.wildcard_index == 1                 # pool pick bumps it
@@ -67,9 +67,9 @@ def test_skip_from_a_fixed_slot_does_not_bump_wildcard_index(tmp_path):
 
 
 def test_skip_time_jumps_when_the_sequence_is_exhausted(tmp_path):
-    # Pre-disco the pool is [easy-listening] alone; with both it and country
+    # Pre-disco the pool is [oricon-showa] alone; with both it and country
     # already posted at Feb 14 there is no alternate at that date.
-    path = seed(tmp_path, chart_id="easy-listening", week=4, wildcard_index=0)
+    path = seed(tmp_path, chart_id="oricon-showa", week=4, wildcard_index=0)
     st = load_state(path, default_cursor=CFG.start_date)
     st.completed[run_key("country", FEB14)] = {"posted": True, "week": 3}
     save_state(path, st)
@@ -109,7 +109,7 @@ def test_skip_dry_run_writes_nothing_and_posts_nothing(tmp_path, capsys):
     )
     assert code == 0
     assert path.read_text() == before
-    assert "Easy Listening" in capsys.readouterr().out
+    assert "Oricon Weekly Singles (Shōwa)" in capsys.readouterr().out
 
 
 def test_skip_warns_when_superseding_a_thread_that_already_has_polls(tmp_path, capsys):
@@ -139,7 +139,7 @@ def test_failed_skip_can_retry_and_reuses_its_own_playlist(tmp_path):
     # the same candidate and reuse the orphaned playlist - not treat the
     # failed attempt's own record as "already tried" and move on.
     path = seed(tmp_path)  # country posted at FEB14, cursor already at MAR6
-    easy_key = run_key("easy-listening", FEB14)
+    oricon_key = run_key("oricon-showa", FEB14)
 
     class DiscordError(Exception):
         pass
@@ -153,8 +153,8 @@ def test_failed_skip_can_retry_and_reuses_its_own_playlist(tmp_path):
     )
     assert code == 1
     st = load_state(path, default_cursor=CFG.start_date)
-    assert st.completed[easy_key]["posted"] is False
-    playlist_url = st.completed[easy_key]["playlist_url"]
+    assert st.completed[oricon_key]["posted"] is False
+    playlist_url = st.completed[oricon_key]["playlist_url"]
     assert playlist_url
 
     posts = []
@@ -165,23 +165,24 @@ def test_failed_skip_can_retry_and_reuses_its_own_playlist(tmp_path):
         notify_failure=lambda *a, **k: None,
     )
     assert code == 0
-    assert posts[0]["chart_name"] == "Easy Listening"  # same candidate, retried
+    # same candidate, retried
+    assert posts[0]["chart_name"] == "Oricon Weekly Singles (Shōwa)"
     assert spotify_second.created is None  # playlist NOT recreated
     st = load_state(path, default_cursor=CFG.start_date)
-    assert st.completed[easy_key]["posted"] is True
-    assert st.completed[easy_key]["playlist_url"] == playlist_url
+    assert st.completed[oricon_key]["posted"] is True
+    assert st.completed[oricon_key]["playlist_url"] == playlist_url
     assert st.cursor == MAR6  # still no time-jump
 
 
 def test_skip_hops_forward_past_an_already_completed_jump_target(tmp_path):
-    # A week-5 skip pre-disco finds easy-listening as the pool's only member
+    # A week-5 skip pre-disco finds oricon-showa as the pool's only member
     # at every date. When the first jump target is already posted, keep
     # advancing a period at a time rather than reporting nothing to do -
     # re-posting over it would overwrite thread_id and rewind
     # last_posted_key, and stopping leaves the operator's skip unhonoured.
-    path = seed(tmp_path, chart_id="easy-listening", week=4, wildcard_index=0)
+    path = seed(tmp_path, chart_id="oricon-showa", week=4, wildcard_index=0)
     st = load_state(path, default_cursor=CFG.start_date)
-    jump_key = run_key("easy-listening", MAR6)
+    jump_key = run_key("oricon-showa", MAR6)
     st.completed[jump_key] = {
         "posted": True, "week": 5, "thread_id": "tid-real", "playlist_url": "u2",
     }
@@ -197,18 +198,18 @@ def test_skip_hops_forward_past_an_already_completed_jump_target(tmp_path):
     assert posts[0]["chart_date"] == date(1976, 3, 27)  # MAR6 was taken
     st = load_state(path, default_cursor=CFG.start_date)
     assert st.completed[jump_key]["thread_id"] == "tid-real"  # not overwritten
-    assert st.last_posted_key == run_key("easy-listening", date(1976, 3, 27))
+    assert st.last_posted_key == run_key("oricon-showa", date(1976, 3, 27))
     assert st.cursor == date(1976, 4, 17)  # landing date + 3 weeks
 
 
 def test_skip_fails_loudly_when_every_week_within_the_hop_cap_is_taken(tmp_path):
     # A badly rewound cursor must surface as a failure, not spin through
     # decades of already-posted weeks looking for a gap.
-    path = seed(tmp_path, chart_id="easy-listening", week=4, wildcard_index=0)
+    path = seed(tmp_path, chart_id="oricon-showa", week=4, wildcard_index=0)
     st = load_state(path, default_cursor=CFG.start_date)
     for hop in range(MAX_JUMPS):
         taken = MAR6 + timedelta(weeks=CFG.weeks_per_run * hop)
-        st.completed[run_key("easy-listening", taken)] = {"posted": True, "week": 5}
+        st.completed[run_key("oricon-showa", taken)] = {"posted": True, "week": 5}
     save_state(path, st)
 
     failures = []
@@ -221,7 +222,7 @@ def test_skip_fails_loudly_when_every_week_within_the_hop_cap_is_taken(tmp_path)
     assert "1976-07-31" in failures[0]  # the last date it tried
     st = load_state(path, default_cursor=CFG.start_date)
     assert st.cursor == MAR6  # untouched
-    assert st.last_posted_key == run_key("easy-listening", FEB14)
+    assert st.last_posted_key == run_key("oricon-showa", FEB14)
 
 
 def test_skip_warns_when_time_jump_reserves_the_same_chart(tmp_path, capsys):
@@ -229,7 +230,7 @@ def test_skip_warns_when_time_jump_reserves_the_same_chart(tmp_path, capsys):
     # time-jump on a wildcard week always re-serves the chart just
     # superseded. The operator must be told, since the skip otherwise looks
     # like a no-op that quietly burns a historical week.
-    path = seed(tmp_path, chart_id="easy-listening", week=4, wildcard_index=0)
+    path = seed(tmp_path, chart_id="oricon-showa", week=4, wildcard_index=0)
     code = skip(
         CFG, path, ENV, source(), FakeSpotify(), today=date(2026, 8, 24),
         notify=lambda *a, **k: "tid-new", notify_failure=lambda *a, **k: None,
@@ -237,7 +238,7 @@ def test_skip_warns_when_time_jump_reserves_the_same_chart(tmp_path, capsys):
     assert code == 0
     err = capsys.readouterr().err
     assert "no alternate chart exists" in err
-    assert "Easy Listening" in err
+    assert "Oricon Weekly Singles (Shōwa)" in err
 
 
 def test_normal_skip_records_slot_consumed(tmp_path):
@@ -247,11 +248,11 @@ def test_normal_skip_records_slot_consumed(tmp_path):
         notify=lambda *a, **k: "tid-new", notify_failure=lambda *a, **k: None,
     )
     st = load_state(path, default_cursor=CFG.start_date)
-    assert st.slot_consumed == 4  # easy-listening picked at week 4
+    assert st.slot_consumed == 4  # oricon-showa picked at week 4
 
 
 def test_time_jump_skip_does_not_record_slot_consumed(tmp_path):
-    path = seed(tmp_path, chart_id="easy-listening", week=4, wildcard_index=0)
+    path = seed(tmp_path, chart_id="oricon-showa", week=4, wildcard_index=0)
     st = load_state(path, default_cursor=CFG.start_date)
     st.completed[run_key("country", FEB14)] = {"posted": True, "week": 3}
     save_state(path, st)

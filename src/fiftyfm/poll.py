@@ -60,7 +60,10 @@ def run_poll(
             return 0
 
         chart_id, _, iso_date = key.partition("@")
-        chart = config.charts[chart_id]
+        chart = config.charts.get(chart_id)
+        if chart is None:
+            print(f"{key} chart is no longer configured; nothing to poll")
+            return 0
         chart_date = date.fromisoformat(iso_date)
         songs = source.fetch(chart, chart_date).songs[:TOP_N]
         if not songs:

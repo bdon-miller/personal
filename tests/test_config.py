@@ -18,10 +18,28 @@ def test_load_packaged_config():
     assert disco.available_from == date(1976, 8, 28)
     assert disco.available_until == date(2020, 3, 28)
     assert list(cfg.charts) == [
-        "hot-100", "soul", "country", "easy-listening", "disco",
+        "hot-100", "soul", "country", "disco",
         "mainstream-rock", "latin", "modern-rock", "rap", "pop",
         "adult-top-40", "hot-rock", "dance-electronic", "global-200",
+        "oricon-showa", "oricon-heisei",
     ]
+
+
+def test_oricon_charts_configured():
+    cfg = load_config()
+    showa = cfg.charts["oricon-showa"]
+    assert showa.source == "oricon"
+    assert showa.publisher == "Oricon"
+    assert showa.strict_match is True
+    assert showa.available_from == date(1976, 1, 12)
+    assert showa.available_until == date(1989, 1, 2)
+    heisei = cfg.charts["oricon-heisei"]
+    assert heisei.available_from == date(1989, 1, 16)
+    assert heisei.available_until == date(2008, 12, 29)
+    # Wildcard-only: neither may appear in a fixed slot.
+    for slot in cfg.slots:
+        assert "oricon-showa" not in slot
+        assert "oricon-heisei" not in slot
 
 
 def test_chart_source_fields_default_to_billboard():

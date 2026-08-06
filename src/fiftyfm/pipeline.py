@@ -156,11 +156,18 @@ def run(
             ),
             None,
         )
-        if resume_key is not None:
+        if resume_key is not None and resume_key.split("@", 1)[0] in config.charts:
             chart_id = resume_key.split("@", 1)[0]
             chart = config.charts[chart_id]
             week = state.completed[resume_key].get("week", week_of_month(today))
         else:
+            if resume_key is not None:
+                print(
+                    f"{resume_key} chart is no longer configured; "
+                    "selecting a fresh chart for this week",
+                    file=sys.stderr,
+                )
+                resume_key = None
             week = week_of_month(today)
             if state.slot_consumed is not None and week <= state.slot_consumed:
                 week = state.slot_consumed + 1

@@ -44,15 +44,17 @@ def test_era1_slots_1976():
     assert select_chart(CFG, cursor, 1, 0).id == "hot-100"
     assert select_chart(CFG, cursor, 2, 0).id == "soul"      # rock not yet available
     assert select_chart(CFG, cursor, 3, 0).id == "country"   # rap no, soul taken
-    # wildcard pool pre-disco: easy-listening only
-    assert select_chart(CFG, cursor, 4, 0).id == "easy-listening"
-    assert select_chart(CFG, cursor, 4, 1).id == "easy-listening"  # pool of 1 cycles
+    # wildcard pool pre-disco: oricon-showa only
+    assert select_chart(CFG, cursor, 4, 0).id == "oricon-showa"
+    assert select_chart(CFG, cursor, 4, 1).id == "oricon-showa"  # pool of 1 cycles
 
 
 def test_era1_wildcard_gains_disco():
+    # Pool order follows charts.toml's declaration order: disco precedes
+    # oricon-showa there, so it takes wildcard index 0.
     cursor = date(1976, 9, 4)
-    assert select_chart(CFG, cursor, 4, 0).id == "easy-listening"
-    assert select_chart(CFG, cursor, 4, 1).id == "disco"
+    assert select_chart(CFG, cursor, 4, 0).id == "disco"
+    assert select_chart(CFG, cursor, 4, 1).id == "oricon-showa"
 
 
 def test_era2_rock_takes_slot2():
@@ -61,7 +63,7 @@ def test_era2_rock_takes_slot2():
     assert select_chart(CFG, cursor, 3, 0).id == "soul"
     # country falls to the wildcard pool
     pool_ids = {select_chart(CFG, cursor, 4, i).id for i in range(4)}
-    assert pool_ids == {"country", "easy-listening", "disco"}
+    assert pool_ids == {"country", "oricon-showa", "disco"}
 
 
 def test_era3_rap_takes_slot3():
@@ -88,24 +90,24 @@ def test_next_chart_skips_an_excluded_slot():
 
 def test_next_chart_from_last_slot_falls_to_the_wildcard_pool():
     chart, week, wi = next_chart(CFG, date(1976, 3, 6), 3, 0, {"country"})
-    assert (chart.id, week, wi) == ("easy-listening", 4, 0)
+    assert (chart.id, week, wi) == ("oricon-showa", 4, 0)
 
 
 def test_next_chart_walks_the_wildcard_pool():
-    # Sep 1976: pool is [easy-listening, disco]. Skipping a wildcard week
+    # Sep 1976: pool is [disco, oricon-showa]. Skipping a wildcard week
     # must advance the index, since week+1 alone would return the same chart.
-    chart, week, wi = next_chart(CFG, date(1976, 9, 4), 4, 0, {"easy-listening"})
-    assert (chart.id, week, wi) == ("disco", 4, 1)
+    chart, week, wi = next_chart(CFG, date(1976, 9, 4), 4, 0, {"disco"})
+    assert (chart.id, week, wi) == ("oricon-showa", 4, 1)
 
 
 def test_next_chart_returns_none_when_the_pool_of_one_is_exhausted():
-    # Pre-disco the pool is [easy-listening] alone, so a wildcard week has
+    # Pre-disco the pool is [oricon-showa] alone, so a wildcard week has
     # no alternate at all. None is the signal to time-jump.
-    assert next_chart(CFG, date(1976, 3, 6), 4, 0, {"easy-listening"}) is None
+    assert next_chart(CFG, date(1976, 3, 6), 4, 0, {"oricon-showa"}) is None
 
 
 def test_next_chart_returns_none_when_everything_is_excluded():
-    excluded = {"hot-100", "soul", "country", "easy-listening"}
+    excluded = {"hot-100", "soul", "country", "oricon-showa"}
     assert next_chart(CFG, date(1976, 3, 6), 1, 0, excluded) is None
 
 
@@ -113,7 +115,7 @@ def test_next_chart_availability_uses_chart_date_not_a_later_cursor():
     # Disco is unavailable until 1976-08-28. It must not be offered for a
     # March chart date even though the caller's cursor is weeks ahead.
     assert next_chart(
-        CFG, date(1976, 3, 6), 3, 1, {"country", "easy-listening"}
+        CFG, date(1976, 3, 6), 3, 1, {"country", "oricon-showa"}
     ) is None
 
 

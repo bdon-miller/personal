@@ -28,12 +28,6 @@ display_name = "Hot Country Singles"
 available_from = 1958-10-20
 
 [[charts]]
-id = "easy-listening"
-slug = "adult-contemporary"
-display_name = "Easy Listening"
-available_from = 1961-07-17
-
-[[charts]]
 id = "disco"
 slug = "dance-club-play-songs"
 display_name = "National Disco Action Top 30"
@@ -93,3 +87,23 @@ id = "global-200"
 slug = "billboard-global-200"
 display_name = "Billboard Global 200"
 available_from = 2020-09-19
+
+[[charts]]
+id = "oricon-showa"
+slug = "oricon-showa"
+display_name = "Oricon Weekly Singles (Shōwa)"
+available_from = 1976-01-12
+available_until = 1989-01-02
+source = "oricon"
+publisher = "Oricon"
+strict_match = true
+
+[[charts]]
+id = "oricon-heisei"
+slug = "oricon-heisei"
+display_name = "Oricon Weekly Singles (Heisei)"
+available_from = 1989-01-16
+available_until = 2008-12-29
+source = "oricon"
+publisher = "Oricon"
+strict_match = true
