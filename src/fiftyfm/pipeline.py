@@ -36,13 +36,15 @@ def post_chart(
     songs: list,
     recap: str | None = None,
     notify=post_playlist,
-) -> None:
+) -> str:
     """Create the playlist, post the thread, and record it in `state`.
 
     Saves once before posting so a Discord failure leaves a reusable
     playlist behind. Deliberately does not touch `state.cursor` and does not
     save afterwards: `run` advances the cursor and `skip` usually does not,
-    so the caller owns that decision and the final write.
+    so the caller owns that decision and the final write. Returns the
+    playlist URL so the caller can print its success line after its own
+    final save.
     """
     webhook = env.get("DISCORD_WEBHOOK_URL", "")
     key = run_key(chart.id, chart_date)
@@ -99,7 +101,7 @@ def post_chart(
     state.last_posted_key = key
     if week >= 4:
         state.wildcard_index += 1
-    print(f"done: {name} -> {playlist_url}")
+    return playlist_url
 
 
 def run(
@@ -157,7 +159,7 @@ def run(
             return 0
 
         assert spotify is not None
-        post_chart(
+        playlist_url = post_chart(
             state,
             state_path,
             env,
@@ -171,6 +173,7 @@ def run(
         )
         state.cursor = advance(state.cursor, config.weeks_per_run)
         save_state(state_path, state)
+        print(f"done: {name} -> {playlist_url}")
         return 0
     except Exception as exc:  # noqa: BLE001 - top-level run boundary
         print(f"run failed: {exc}", file=sys.stderr)
