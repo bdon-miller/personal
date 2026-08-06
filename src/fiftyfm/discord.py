@@ -42,7 +42,7 @@ def post_playlist(
     csv_filename: str | None = None,
     csv_data: bytes | None = None,
     session=None,
-) -> None:
+) -> str | None:
     session = session or requests.Session()
     teaser = "\n".join(
         f"**{s.rank}.** {s.title} — {s.artist}" for s in songs[:5]
@@ -84,6 +84,10 @@ def post_playlist(
         resp = session.post(url, json=payload, timeout=30)
     if resp.status_code >= 300:
         raise DiscordError(f"webhook returned {resp.status_code}: {resp.text}")
+    try:
+        return resp.json().get("channel_id")
+    except Exception:  # noqa: BLE001 - a missing body must not fail the post
+        return None
 
 
 def post_failure(webhook_url: str, message: str, session=None) -> None:

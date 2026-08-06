@@ -7,22 +7,27 @@ from fiftyfm.discord import DiscordError, post_failure, post_playlist, songs_csv
 
 
 class FakeResponse:
-    def __init__(self, status_code):
+    def __init__(self, status_code, payload=None):
         self.status_code = status_code
-        self.text = ""
+        self._payload = payload if payload is not None else {}
+        self.text = str(payload)
+
+    def json(self):
+        return self._payload
 
 
 class FakeSession:
-    def __init__(self, status_code=200, exc=None):
+    def __init__(self, status_code=200, exc=None, payload=None):
         self.status_code = status_code
         self.exc = exc
+        self.payload = payload if payload is not None else {"channel_id": "555"}
         self.calls = []
 
     def post(self, url, **kwargs):
         if self.exc:
             raise self.exc
         self.calls.append((url, kwargs))
-        return FakeResponse(self.status_code)
+        return FakeResponse(self.status_code, self.payload)
 
 
 SONGS = [Song(i, f"Song {i}", f"Artist {i}") for i in range(1, 41)]
@@ -132,3 +137,32 @@ def test_post_failure_appends_wait_param_when_query_string_present():
     )
     url, _kwargs = session.calls[0]
     assert url == "https://discord.com/api/webhooks/1/tok?thread_id=99&wait=true"
+
+
+def test_post_playlist_returns_thread_id():
+    session = FakeSession(payload={"id": "1", "channel_id": "99887766"})
+    thread_id = post_playlist(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_title="t",
+        chart_name="Hot 100",
+        chart_date=date(1976, 3, 6),
+        songs=SONGS,
+        matched=40,
+        playlist_url="u",
+        session=session,
+    )
+    assert thread_id == "99887766"
+
+
+def test_post_playlist_returns_none_without_channel_id():
+    session = FakeSession(payload={"id": "1"})
+    assert post_playlist(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_title="t",
+        chart_name="Hot 100",
+        chart_date=date(1976, 3, 6),
+        songs=SONGS,
+        matched=40,
+        playlist_url="u",
+        session=session,
+    ) is None
