@@ -3,7 +3,13 @@ from datetime import date
 import pytest
 
 from fiftyfm.chart_source import Song
-from fiftyfm.discord import DiscordError, post_failure, post_playlist, post_poll, songs_csv
+from fiftyfm.discord import (
+    DiscordError,
+    post_failure,
+    post_playlist,
+    post_poll,
+    songs_csv,
+)
 
 
 class FakeResponse:
