@@ -9,6 +9,7 @@ from pathlib import Path
 from .chart_source import BillboardSource
 from .config import load_config
 from .pipeline import run as pipeline_run
+from .poll import run_poll as poll_run
 from .schedule import snap_to_saturday
 from .spotify import TOKEN_URL, SpotifyClient
 from .state import load_state, save_state
@@ -19,6 +20,7 @@ REQUIRED_ENV = (
     "SPOTIFY_REFRESH_TOKEN",
     "DISCORD_WEBHOOK_URL",
 )
+POLL_REQUIRED_ENV = ("DISCORD_WEBHOOK_URL",)
 AUTH_REDIRECT = "http://127.0.0.1:8888/callback"
 
 
@@ -34,12 +36,16 @@ def _charts_path(arg: str | None) -> Path | None:
     return Path(env) if env else None
 
 
+def _missing_env(required, env) -> list[str]:
+    return [v for v in required if not env.get(v)]
+
+
 def _cmd_run(args) -> int:
     config = load_config(_charts_path(args.charts))
     env = os.environ
     spotify = None
     if not args.dry_run:
-        missing = [v for v in REQUIRED_ENV if not env.get(v)]
+        missing = _missing_env(REQUIRED_ENV, env)
         if missing:
             print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
             return 2
@@ -55,6 +61,23 @@ def _cmd_run(args) -> int:
         BillboardSource(),
         spotify,
         today=date.today(),
+        dry_run=args.dry_run,
+    )
+
+
+def _cmd_poll(args) -> int:
+    config = load_config(_charts_path(args.charts))
+    env = os.environ
+    if not args.dry_run:
+        missing = _missing_env(POLL_REQUIRED_ENV, env)
+        if missing:
+            print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
+            return 2
+    return poll_run(
+        config,
+        _state_path(),
+        env,
+        BillboardSource(),
         dry_run=args.dry_run,
     )
 
@@ -128,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help="execute one weekly run")
     p_run.add_argument("--dry-run", action="store_true")
     p_run.set_defaults(func=_cmd_run)
+
+    p_poll = sub.add_parser("poll", help="post this week's follow-up polls")
+    p_poll.add_argument("--dry-run", action="store_true")
+    p_poll.set_defaults(func=_cmd_poll)
 
     p_set = sub.add_parser("set-cursor", help="jump the time cursor")
     p_set.add_argument("date", help="YYYY-MM-DD (snapped to Saturday)")

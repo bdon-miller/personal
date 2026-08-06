@@ -6,13 +6,18 @@ from pathlib import Path
 from typing import Mapping
 
 from .chart_source import ChartSource
-from .config import Config
-from .discord import human_date, post_failure, post_playlist, songs_csv
+from .config import TOP_N, Config
+from .discord import (
+    get_poll_results,
+    human_date,
+    post_failure,
+    post_playlist,
+    songs_csv,
+)
+from .poll import build_recap
 from .schedule import advance, select_chart, snap_to_saturday, week_of_month
 from .spotify import SpotifyClient, SpotifyError
 from .state import load_state, run_key, save_state
-
-TOP_N = 40
 
 
 def playlist_name(display_name: str, chart_date: date) -> str:
@@ -29,10 +34,17 @@ def run(
     dry_run: bool = False,
     notify=post_playlist,
     notify_failure=post_failure,
+    fetch_results=get_poll_results,
 ) -> int:
     webhook = env.get("DISCORD_WEBHOOK_URL", "")
     try:
         state = load_state(state_path, default_cursor=config.start_date)
+        recap = None
+        if not dry_run:
+            try:
+                recap = build_recap(state, webhook, fetch_results)
+            except Exception as exc:  # noqa: BLE001 - a recap never fails the run
+                print(f"recap failed: {exc}", file=sys.stderr)
         chart_date = snap_to_saturday(state.cursor)
 
         resume_key = next(
@@ -99,7 +111,7 @@ def run(
         else:
             matched = record.get("matched", len(songs))
 
-        notify(
+        thread_id = notify(
             webhook,
             thread_title=name,
             chart_name=chart.display_name,
@@ -109,8 +121,12 @@ def run(
             playlist_url=playlist_url,
             csv_filename=f"{chart.id}-{chart_date.isoformat()}.csv",
             csv_data=songs_csv(songs).encode(),
+            recap=recap,
         )
         state.completed[key]["posted"] = True
+        if thread_id:
+            state.completed[key]["thread_id"] = thread_id
+        state.last_posted_key = key
         state.cursor = advance(state.cursor, config.weeks_per_run)
         if week >= 4:
             state.wildcard_index += 1

@@ -5,7 +5,7 @@ from fiftyfm.chart_source import ChartFetchError, Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import playlist_name, run
 from fiftyfm.spotify import SpotifyError
-from fiftyfm.state import load_state, run_key
+from fiftyfm.state import load_state, run_key, save_state
 
 CFG = load_config()
 ENV = {"DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/1/tok"}
@@ -258,3 +258,123 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     assert st.completed[wildcard_key]["posted"] is True  # original record resumed
     assert posts[0]["chart_name"] == "Easy Listening"
     assert st.cursor == date(1976, 1, 24)  # cursor advanced after resume
+
+
+def test_thread_id_and_last_posted_key_are_recorded(tmp_path):
+    state_path = tmp_path / "state.json"
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),  # week 1 -> hot-100
+        notify=lambda *a, **k: "99887766",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    assert st.completed[key]["thread_id"] == "99887766"
+    assert st.last_posted_key == key
+
+
+def test_missing_thread_id_is_not_fatal(tmp_path):
+    # An older webhook response, or one without a body, still posts fine.
+    state_path = tmp_path / "state.json"
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: None,
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    assert "thread_id" not in st.completed[key]
+    assert st.last_posted_key == key
+
+
+def test_recap_is_passed_to_the_new_thread(tmp_path):
+    state_path = tmp_path / "state.json"
+    posts = []
+    # First week: post a thread and record a poll against it.
+    run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: "99887766",
+        notify_failure=lambda *a, **k: None,
+    )
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    st.completed[key]["poll_message_ids"] = {
+        "favorite": "m1", "least_favorite": "m2",
+    }
+    save_state(state_path, st)
+
+    # Second week: the recap must reach post_playlist.
+    run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 10),  # week 2
+        notify=lambda *a, **k: posts.append(k) or "111",
+        notify_failure=lambda *a, **k: None,
+        fetch_results=lambda url, **k: (
+            ({"Song 1 — Artist 1": 12}, True)
+            if k["message_id"] == "m1"
+            else ({"Song 2 — Artist 2": 9}, True)
+        ),
+    )
+    assert "Song 1 — Artist 1 (12 votes)" in posts[0]["recap"]
+
+
+def test_recap_failure_outside_build_recaps_own_try_does_not_fail_the_run(
+    tmp_path,
+):
+    # A recap must never fail the Monday run (design invariant). build_recap
+    # only guards its own fetch_results calls internally; a state record
+    # that doesn't deserialize as a dict raises AttributeError further down
+    # (poll.py's `record.get(...)` / `ids.get(...)` chain), outside that
+    # inner try. The call site in pipeline.run must catch that too.
+    state_path = tmp_path / "state.json"
+    key = run_key("hot-100", date(1976, 1, 3))
+    state_path.write_text(
+        json.dumps(
+            {
+                "cursor": "1976-01-24",
+                "wildcard_index": 0,
+                "completed": {key: "corrupt"},
+                "last_posted_key": key,
+            }
+        )
+    )
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 10),  # week 2
+        notify=lambda *a, **k: posts.append(k) or "111",
+        notify_failure=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("a recap problem must not be treated as a run failure")
+        ),
+    )
+    assert code == 0
+    assert posts[0]["recap"] is None
+    # The chart post itself must still have gone through despite the corrupt
+    # prior record - it is untouched, but the new week's run must proceed.
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    assert st.completed[key] == "corrupt"  # untouched, not overwritten
+    # Week 2 at this cursor resolves to "soul" (mainstream-rock isn't
+    # available until 1981), per charts.toml's slot priority list.
+    new_key = run_key("soul", date(1976, 1, 24))
+    assert st.completed[new_key]["posted"] is True
+
+
+def test_no_recap_on_the_first_ever_run(tmp_path):
+    state_path = tmp_path / "state.json"
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: posts.append(k) or "111",
+        notify_failure=lambda *a, **k: None,
+        fetch_results=lambda url, **k: (_ for _ in ()).throw(
+            AssertionError("nothing to recap")
+        ),
+    )
+    assert code == 0
+    assert posts[0]["recap"] is None

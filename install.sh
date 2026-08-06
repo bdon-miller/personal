@@ -29,14 +29,24 @@ SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
 SPOTIFY_REFRESH_TOKEN=
 DISCORD_WEBHOOK_URL=
+LASTFM_API_KEY=
 EOF
     chmod 600 "$ENV_FILE"
     echo "Created $ENV_FILE - fill in your credentials (see README)."
 fi
 
+if ! grep -q '^LASTFM_API_KEY=' "$ENV_FILE"; then
+    echo 'LASTFM_API_KEY=' >> "$ENV_FILE"
+    echo "Added LASTFM_API_KEY to $ENV_FILE - fill it in (see README)."
+fi
+
 cp "$REPO_DIR/deploy/fiftyfm.service" "$REPO_DIR/deploy/fiftyfm.timer" \
+   "$REPO_DIR/deploy/fiftyfm-poll.service" \
+   "$REPO_DIR/deploy/fiftyfm-poll.timer" \
    /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now fiftyfm.timer
+systemctl enable --now fiftyfm.timer fiftyfm-poll.timer
 echo "Installed. Next run: $(systemctl list-timers fiftyfm.timer --no-pager | sed -n 2p)"
+echo "Next poll: $(systemctl list-timers fiftyfm-poll.timer --no-pager | sed -n 2p)"
 echo "Test with: $APP_DIR/.venv/bin/fiftyfm run --dry-run"
+echo "       and: $APP_DIR/.venv/bin/fiftyfm poll --dry-run"
