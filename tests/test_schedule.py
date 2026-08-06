@@ -6,6 +6,7 @@ from fiftyfm.config import load_config
 from fiftyfm.schedule import (
     advance,
     is_available,
+    next_chart,
     select_chart,
     snap_to_saturday,
     week_of_month,
@@ -73,3 +74,52 @@ def test_select_chart_no_charts_available():
     cursor = date(1950, 1, 7)
     with pytest.raises(ValueError):
         select_chart(CFG, cursor, 1, 0)
+
+
+def test_next_chart_forward_from_slot_1():
+    chart, week, wi = next_chart(CFG, date(1976, 3, 6), 1, 0, {"hot-100"})
+    assert (chart.id, week, wi) == ("soul", 2, 0)
+
+
+def test_next_chart_skips_an_excluded_slot():
+    chart, week, wi = next_chart(CFG, date(1976, 3, 6), 1, 0, {"hot-100", "soul"})
+    assert (chart.id, week, wi) == ("country", 3, 0)
+
+
+def test_next_chart_from_last_slot_falls_to_the_wildcard_pool():
+    chart, week, wi = next_chart(CFG, date(1976, 3, 6), 3, 0, {"country"})
+    assert (chart.id, week, wi) == ("easy-listening", 4, 0)
+
+
+def test_next_chart_walks_the_wildcard_pool():
+    # Sep 1976: pool is [easy-listening, disco]. Skipping a wildcard week
+    # must advance the index, since week+1 alone would return the same chart.
+    chart, week, wi = next_chart(CFG, date(1976, 9, 4), 4, 0, {"easy-listening"})
+    assert (chart.id, week, wi) == ("disco", 4, 1)
+
+
+def test_next_chart_returns_none_when_the_pool_of_one_is_exhausted():
+    # Pre-disco the pool is [easy-listening] alone, so a wildcard week has
+    # no alternate at all. None is the signal to time-jump.
+    assert next_chart(CFG, date(1976, 3, 6), 4, 0, {"easy-listening"}) is None
+
+
+def test_next_chart_returns_none_when_everything_is_excluded():
+    excluded = {"hot-100", "soul", "country", "easy-listening"}
+    assert next_chart(CFG, date(1976, 3, 6), 1, 0, excluded) is None
+
+
+def test_next_chart_availability_uses_chart_date_not_a_later_cursor():
+    # Disco is unavailable until 1976-08-28. It must not be offered for a
+    # March chart date even though the caller's cursor is weeks ahead.
+    assert next_chart(
+        CFG, date(1976, 3, 6), 3, 1, {"country", "easy-listening"}
+    ) is None
+
+
+def test_next_chart_is_forward_only():
+    # Slot 1 and 2 charts must NOT be offered when skipping slot 3, even
+    # though they are available and unexcluded at this date.
+    chart, week, _wi = next_chart(CFG, date(1976, 3, 6), 3, 0, {"country"})
+    assert chart.id not in ("hot-100", "soul")
+    assert week == 4
