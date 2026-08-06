@@ -12,6 +12,7 @@ class State:
     cursor: date
     wildcard_index: int = 0
     completed: dict[str, dict] = field(default_factory=dict)
+    last_posted_key: str | None = None
 
 
 def run_key(chart_id: str, chart_date: date) -> str:
@@ -26,6 +27,7 @@ def load_state(path: Path, default_cursor: date) -> State:
         cursor=date.fromisoformat(data["cursor"]),
         wildcard_index=data.get("wildcard_index", 0),
         completed=data.get("completed", {}),
+        last_posted_key=data.get("last_posted_key"),
     )
 
 
@@ -36,6 +38,7 @@ def save_state(path: Path, state: State) -> None:
             "cursor": state.cursor.isoformat(),
             "wildcard_index": state.wildcard_index,
             "completed": state.completed,
+            "last_posted_key": state.last_posted_key,
         },
         indent=2,
     )

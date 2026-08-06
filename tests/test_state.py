@@ -24,3 +24,21 @@ def test_roundtrip(tmp_path):
 
 def test_run_key():
     assert run_key("soul", date(1976, 2, 7)) == "soul@1976-02-07"
+
+
+def test_last_posted_key_round_trips(tmp_path):
+    path = tmp_path / "state.json"
+    state = load_state(path, default_cursor=date(1976, 1, 3))
+    assert state.last_posted_key is None
+    state.last_posted_key = "hot-100@1976-01-03"
+    save_state(path, state)
+    assert load_state(path, default_cursor=date(1976, 1, 3)).last_posted_key == (
+        "hot-100@1976-01-03"
+    )
+
+
+def test_last_posted_key_absent_in_legacy_state_file(tmp_path):
+    # State files written before polls existed have no such key.
+    path = tmp_path / "state.json"
+    path.write_text('{"cursor": "1976-01-03", "wildcard_index": 0, "completed": {}}')
+    assert load_state(path, default_cursor=date(1976, 1, 3)).last_posted_key is None
