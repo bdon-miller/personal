@@ -30,6 +30,22 @@ most-played songs from the week's chart by Last.fm playcount, plus
 close Monday at 08:00 — an hour before Monday's new thread opens with the
 results.
 
+## Skipping a chart
+
+If you post a chart on Monday but decide you don't want it, run `fiftyfm skip`
+after the post. It creates a replacement chart for the same historical week and
+leaves the time cursor unchanged, so the following Monday proceeds normally. The
+superseded Discord thread and Spotify playlist are not deleted — remove those by
+hand. Note that the replacement thread carries no "last week's results" recap,
+so deleting the old thread loses that line.
+
+When every available chart has already been posted for that week, `skip`
+instead jumps forward by `weeks_per_run` and posts the next period's chart,
+advancing the cursor.
+
+Use `fiftyfm skip --dry-run` to preview what would be posted without creating
+playlists or Discord threads.
+
 ## Install on a Linux server
 
     git clone <this repo> && cd <repo>

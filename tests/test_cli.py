@@ -53,3 +53,21 @@ def test_poll_dry_run_skips_env_check(monkeypatch, tmp_path):
     monkeypatch.setenv("FIFTYFM_STATE_PATH", str(tmp_path / "state.json"))
     # No posted thread yet, so this is a clean no-op rather than an env error.
     assert main(["poll", "--dry-run"]) == 0
+
+
+def test_skip_requires_credentials(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FIFTYFM_STATE_PATH", str(tmp_path / "state.json"))
+    for var in ("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET",
+                "SPOTIFY_REFRESH_TOKEN", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(var, raising=False)
+    assert main(["skip"]) == 2
+    assert "missing" in capsys.readouterr().err.lower()
+
+
+def test_skip_dry_run_skips_the_env_check(tmp_path, monkeypatch):
+    for var in ("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET",
+                "SPOTIFY_REFRESH_TOKEN", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("FIFTYFM_STATE_PATH", str(tmp_path / "state.json"))
+    # Nothing posted yet, so this is a clean no-op rather than an env error.
+    assert main(["skip", "--dry-run"]) == 0

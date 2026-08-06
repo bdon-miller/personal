@@ -9,6 +9,7 @@ from pathlib import Path
 from .chart_source import BillboardSource
 from .config import load_config
 from .pipeline import run as pipeline_run
+from .pipeline import skip as skip_run
 from .poll import run_poll as poll_run
 from .schedule import snap_to_saturday
 from .spotify import TOKEN_URL, SpotifyClient
@@ -55,6 +56,31 @@ def _cmd_run(args) -> int:
             env["SPOTIFY_REFRESH_TOKEN"],
         )
     return pipeline_run(
+        config,
+        _state_path(),
+        env,
+        BillboardSource(),
+        spotify,
+        today=date.today(),
+        dry_run=args.dry_run,
+    )
+
+
+def _cmd_skip(args) -> int:
+    config = load_config(_charts_path(args.charts))
+    env = os.environ
+    spotify = None
+    if not args.dry_run:
+        missing = _missing_env(REQUIRED_ENV, env)
+        if missing:
+            print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
+            return 2
+        spotify = SpotifyClient(
+            env["SPOTIFY_CLIENT_ID"],
+            env["SPOTIFY_CLIENT_SECRET"],
+            env["SPOTIFY_REFRESH_TOKEN"],
+        )
+    return skip_run(
         config,
         _state_path(),
         env,
@@ -155,6 +181,12 @@ def main(argv: list[str] | None = None) -> int:
     p_poll = sub.add_parser("poll", help="post this week's follow-up polls")
     p_poll.add_argument("--dry-run", action="store_true")
     p_poll.set_defaults(func=_cmd_poll)
+
+    p_skip = sub.add_parser(
+        "skip", help="replace the chart the last run posted"
+    )
+    p_skip.add_argument("--dry-run", action="store_true")
+    p_skip.set_defaults(func=_cmd_skip)
 
     p_set = sub.add_parser("set-cursor", help="jump the time cursor")
     p_set.add_argument("date", help="YYYY-MM-DD (snapped to Saturday)")
