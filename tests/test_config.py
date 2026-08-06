@@ -31,7 +31,11 @@ def test_oricon_charts_configured():
     assert showa.source == "oricon"
     assert showa.publisher == "Oricon"
     assert showa.strict_match is True
-    assert showa.available_from == date(1976, 1, 12)
+    # Backdated to config.start_date, not the CSV's real first chart
+    # (1976-01-12): OriconSource's nearest-Monday mapping resolves the
+    # schedule's origin to that real chart, closing the empty-wildcard-
+    # pool gap that otherwise exists between the two dates.
+    assert showa.available_from == date(1976, 1, 3)
     assert showa.available_until == date(1989, 1, 2)
     heisei = cfg.charts["oricon-heisei"]
     assert heisei.available_from == date(1989, 1, 16)

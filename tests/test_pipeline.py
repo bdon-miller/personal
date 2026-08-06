@@ -6,7 +6,7 @@ from fakes import FakeSource, FakeSpotify
 from fiftyfm.chart_source import ChartFetchError, Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import playlist_name, run
-from fiftyfm.state import State, load_state, run_key, save_state
+from fiftyfm.state import load_state, run_key, save_state
 
 CFG = load_config()
 ENV = {"DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/1/tok"}
@@ -70,10 +70,6 @@ def test_happy_path_advances_cursor(tmp_path, capsys):
 
 def test_wildcard_week_increments_index(tmp_path):
     state_path = tmp_path / "state.json"
-    # Seed the cursor past 1976-01-12 (oricon-showa's available_from) so the
-    # wildcard pool at this chart_date isn't empty - the raw start_date
-    # (1976-01-03) predates it by 9 days and has no wildcard chart at all.
-    save_state(state_path, State(cursor=date(1976, 1, 24)))
     code = run(
         CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 24),  # week 4 -> wildcard
@@ -211,12 +207,7 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     def failing_notify(*a, **k):
         raise DiscordError("discord is down")
 
-    # Seed the cursor past 1976-01-12 (oricon-showa's available_from) so the
-    # wildcard pool at this chart_date isn't empty - the raw start_date
-    # (1976-01-03) predates it by 9 days and has no wildcard chart at all.
-    save_state(state_path, State(cursor=date(1976, 1, 24)))
-
-    # First run: week 4 -> wildcard chart (oricon-showa at this cursor).
+    # First run: week 4 -> wildcard chart (oricon-showa at the start cursor).
     # Playlist gets created but the Discord post fails.
     code = run(
         CFG, state_path, ENV, source, spotify_first,
@@ -226,11 +217,11 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     )
     assert code == 1
 
-    wildcard_key = run_key("oricon-showa", date(1976, 1, 24))
+    wildcard_key = run_key("oricon-showa", date(1976, 1, 3))
     st = json.loads(state_path.read_text())
     assert wildcard_key in st["completed"]
     assert st["completed"][wildcard_key]["posted"] is False
-    assert st["cursor"] == "1976-01-24"  # cursor NOT advanced
+    assert st["cursor"] == "1976-01-03"  # cursor NOT advanced
 
     # Second run: the timer next fires in week 1 of the following month.
     # Without the fix this would select hot-100 for the same chart_date,
@@ -247,11 +238,11 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     assert spotify_second.created is None  # no new playlist created
 
     st = load_state(state_path, default_cursor=date(1976, 1, 3))
-    hot100_key = run_key("hot-100", date(1976, 1, 24))
+    hot100_key = run_key("hot-100", date(1976, 1, 3))
     assert hot100_key not in st.completed  # no duplicate playlist/record
     assert st.completed[wildcard_key]["posted"] is True  # original record resumed
     assert posts[0]["chart_name"] == "Oricon Weekly Singles (Shōwa)"
-    assert st.cursor == date(1976, 2, 14)  # cursor advanced after resume
+    assert st.cursor == date(1976, 1, 24)  # cursor advanced after resume
 
 
 def test_thread_id_and_last_posted_key_are_recorded(tmp_path):

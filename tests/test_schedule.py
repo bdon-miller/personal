@@ -39,6 +39,22 @@ def test_is_available_window():
     assert not is_available(disco, date(2020, 4, 4))  # past available_until
 
 
+def test_wildcard_pool_is_never_empty_at_the_schedule_origin():
+    """Regression: a fresh wildcard-week selection at config.start_date
+    itself must resolve a chart, not raise.
+
+    easy-listening used to cover this for free (available since 1961).
+    When it was replaced by oricon-showa, oricon-showa's available_from
+    briefly trailed start_date by 9 days (1976-01-12 vs. 1976-01-03),
+    leaving the wildcard pool empty for any fresh (no prior state file)
+    run or resume whose first wildcard week landed in that gap -
+    including the schedule's very first day. Nothing asserted the pool
+    was non-empty at the origin, so the gap shipped unnoticed.
+    """
+    chart = select_chart(CFG, CFG.start_date, 4, 0)
+    assert chart.id == "oricon-showa"
+
+
 def test_era1_slots_1976():
     cursor = date(1976, 3, 6)
     assert select_chart(CFG, cursor, 1, 0).id == "hot-100"

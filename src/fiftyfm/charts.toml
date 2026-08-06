@@ -92,7 +92,13 @@ available_from = 2020-09-19
 id = "oricon-showa"
 slug = "oricon-showa"
 display_name = "Oricon Weekly Singles (Shōwa)"
-available_from = 1976-01-12
+# available_from is the earliest cursor date this chart can serve, not its
+# first publication date. The CSV's real first chart is 1976-01-12, but
+# OriconSource's +/-10-day nearest-Monday mapping resolves the schedule's
+# start_date (1976-01-03, a 9-day distance) to that same chart, and the
+# post displays the real 1976-01-12 date. Backdating this to start_date
+# closes the empty-wildcard-pool gap at the schedule's origin.
+available_from = 1976-01-03
 available_until = 1989-01-02
 source = "oricon"
 publisher = "Oricon"
