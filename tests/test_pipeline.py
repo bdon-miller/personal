@@ -15,8 +15,17 @@ SONGS = [Song(i, f"Song {i}", f"Artist {i}") for i in range(1, 101)]
 
 def test_playlist_name():
     assert (
-        playlist_name("Hot 100", date(1976, 3, 6))
+        playlist_name("Billboard", "Hot 100", date(1976, 3, 6), 40)
         == "Billboard Hot 100 Top 40 — March 6, 1976"
+    )
+
+
+def test_playlist_name_uses_publisher_and_actual_count():
+    assert (
+        playlist_name(
+            "Oricon", "Oricon Weekly Singles (Shōwa)", date(1976, 1, 12), 20
+        )
+        == "Oricon Oricon Weekly Singles (Shōwa) Top 20 — January 12, 1976"
     )
 
 

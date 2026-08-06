@@ -51,3 +51,34 @@ def test_fetch_wraps_exceptions(monkeypatch):
     monkeypatch.setattr(cs.billboard, "ChartData", boom)
     with pytest.raises(cs.ChartFetchError):
         cs.BillboardSource().fetch(HOT100, date(1976, 3, 6))
+
+
+def test_routing_source_dispatches_on_chart_source():
+    class Marker:
+        def __init__(self, tag):
+            self.tag = tag
+
+        def fetch(self, chart, chart_date):
+            return cs.ChartFetch(
+                songs=[cs.Song(1, self.tag, "a")], chart_date=chart_date
+            )
+
+    router = cs.RoutingSource(
+        {"billboard": Marker("bb"), "oricon": Marker("or")}
+    )
+    oricon = ChartDef(
+        id="oricon-showa", slug="oricon-showa", display_name="Oricon",
+        available_from=date(1976, 1, 12), source="oricon",
+    )
+    assert router.fetch(HOT100, date(1976, 3, 6)).songs[0].title == "bb"
+    assert router.fetch(oricon, date(1976, 3, 6)).songs[0].title == "or"
+
+
+def test_routing_source_unknown_source_raises():
+    router = cs.RoutingSource({"billboard": cs.BillboardSource()})
+    bogus = ChartDef(
+        id="x", slug="x", display_name="X",
+        available_from=date(1976, 1, 3), source="nope",
+    )
+    with pytest.raises(cs.ChartFetchError):
+        router.fetch(bogus, date(1976, 3, 6))

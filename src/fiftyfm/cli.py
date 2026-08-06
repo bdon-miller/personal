@@ -6,7 +6,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from .chart_source import BillboardSource
+from .chart_source import default_source
 from .config import load_config
 from .pipeline import run as pipeline_run
 from .pipeline import skip as skip_run
@@ -66,7 +66,7 @@ def _cmd_run(args) -> int:
         config,
         _state_path(),
         env,
-        BillboardSource(),
+        default_source(),
         spotify,
         today=date.today(),
         dry_run=args.dry_run,
@@ -85,7 +85,7 @@ def _cmd_skip(args) -> int:
         config,
         _state_path(),
         env,
-        BillboardSource(),
+        default_source(),
         spotify,
         today=date.today(),
         dry_run=args.dry_run,
@@ -104,7 +104,7 @@ def _cmd_poll(args) -> int:
         config,
         _state_path(),
         env,
-        BillboardSource(),
+        default_source(),
         dry_run=args.dry_run,
     )
 

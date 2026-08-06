@@ -25,7 +25,7 @@ class FakeSpotify:
         self.error_titles = error_titles
         self.created = None
 
-    def find_track(self, song):
+    def find_track(self, song, strict_only=False):
         if song.title in self.error_titles:
             raise SpotifyError(f"boom on {song.title}")
         if song.title in self.miss_titles:

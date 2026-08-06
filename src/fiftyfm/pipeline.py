@@ -31,8 +31,10 @@ from .state import State, load_state, run_key, save_state
 MAX_JUMPS = 8
 
 
-def playlist_name(display_name: str, chart_date: date) -> str:
-    return f"Billboard {display_name} Top {TOP_N} — {human_date(chart_date)}"
+def playlist_name(
+    publisher: str, display_name: str, chart_date: date, count: int
+) -> str:
+    return f"{publisher} {display_name} Top {count} — {human_date(chart_date)}"
 
 
 def post_chart(
@@ -41,6 +43,7 @@ def post_chart(
     env: Mapping[str, str],
     spotify: SpotifyClient,
     *,
+    key: str,
     chart: ChartDef,
     chart_date: date,
     week: int,
@@ -56,10 +59,17 @@ def post_chart(
     so the caller owns that decision and the final write. Returns the
     playlist URL so the caller can print its success line after its own
     final save.
+
+    `key` is the state's cursor-derived key, kept separate from
+    `chart_date` because the two can differ (e.g. Oricon's actual chart
+    date vs. the cursor's Saturday): the key must stay pinned to the
+    cursor for schedule integrity, resume, and skip to keep working, while
+    `chart_date` is the real date to display.
     """
     webhook = env.get("DISCORD_WEBHOOK_URL", "")
-    key = run_key(chart.id, chart_date)
-    name = playlist_name(chart.display_name, chart_date)
+    name = playlist_name(
+        chart.publisher, chart.display_name, chart_date, len(songs)
+    )
     record = state.completed.get(key, {})
     playlist_url = record.get("playlist_url")
     matched = 0
@@ -67,7 +77,7 @@ def post_chart(
         uris = []
         for song in songs:
             try:
-                uri = spotify.find_track(song)
+                uri = spotify.find_track(song, strict_only=chart.strict_match)
             except SpotifyError as exc:
                 uri = None
                 print(
@@ -80,8 +90,8 @@ def post_chart(
             else:
                 print(f"no match: {song.title} — {song.artist}", file=sys.stderr)
         description = (
-            f"The Billboard {chart.display_name} chart for the week of "
-            f"{chart_date.isoformat()}, courtesy of fiftyfm."
+            f"The {chart.publisher} {chart.display_name} chart for the week "
+            f"of {chart_date.isoformat()}, courtesy of fiftyfm."
         )
         playlist_url = spotify.create_playlist(name, description, uris)
         state.completed[key] = {
@@ -156,7 +166,6 @@ def run(
                 week = state.slot_consumed + 1
             chart = select_chart(config, chart_date, week, state.wildcard_index)
         key = run_key(chart.id, chart_date)
-        name = playlist_name(chart.display_name, chart_date)
 
         record = state.completed.get(key, {})
         if record.get("posted"):
@@ -165,6 +174,9 @@ def run(
 
         fetched = source.fetch(chart, chart_date)
         songs = fetched.songs[:TOP_N]
+        name = playlist_name(
+            chart.publisher, chart.display_name, fetched.chart_date, len(songs)
+        )
 
         if dry_run:
             print(f"[dry-run] {name} (slot week {week})")
@@ -178,8 +190,9 @@ def run(
             state_path,
             env,
             spotify,
+            key=key,
             chart=chart,
-            chart_date=chart_date,
+            chart_date=fetched.chart_date,
             week=week,
             songs=songs,
             recap=recap,
@@ -263,7 +276,11 @@ def skip(
         else:
             chart, week, state.wildcard_index = found
 
-        name = playlist_name(chart.display_name, chart_date)
+        fetched = source.fetch(chart, chart_date)
+        songs = fetched.songs[:TOP_N]
+        name = playlist_name(
+            chart.publisher, chart.display_name, fetched.chart_date, len(songs)
+        )
         if dry_run:
             suffix = " [time-jump]" if jumped else ""
             print(f"[dry-run] skip -> {name} (slot week {week}){suffix}")
@@ -276,16 +293,15 @@ def skip(
                 file=sys.stderr,
             )
 
-        fetched = source.fetch(chart, chart_date)
-        songs = fetched.songs[:TOP_N]
         assert spotify is not None
         playlist_url = post_chart(
             state,
             state_path,
             env,
             spotify,
+            key=run_key(chart.id, chart_date),
             chart=chart,
-            chart_date=chart_date,
+            chart_date=fetched.chart_date,
             week=week,
             songs=songs,
             notify=notify,

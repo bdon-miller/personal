@@ -52,3 +52,27 @@ class BillboardSource:
                 f"chart {chart.slug} for {chart_date.isoformat()} came back empty"
             )
         return ChartFetch(songs=songs, chart_date=chart_date)
+
+
+class RoutingSource:
+    """Dispatches each chart to the backend named by `ChartDef.source`."""
+
+    def __init__(self, sources: dict[str, ChartSource]):
+        self._sources = sources
+
+    def fetch(self, chart: ChartDef, chart_date: date) -> ChartFetch:
+        source = self._sources.get(chart.source)
+        if source is None:
+            raise ChartFetchError(
+                f"chart {chart.id!r} names unknown source {chart.source!r}"
+            )
+        return source.fetch(chart, chart_date)
+
+
+def default_source() -> RoutingSource:
+    """The router the CLI injects: every backend the app ships with."""
+    from .oricon import OriconSource
+
+    return RoutingSource(
+        {"billboard": BillboardSource(), "oricon": OriconSource()}
+    )
