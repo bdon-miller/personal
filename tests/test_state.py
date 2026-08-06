@@ -44,6 +44,22 @@ def test_last_posted_key_absent_in_legacy_state_file(tmp_path):
     assert load_state(path, default_cursor=date(1976, 1, 3)).last_posted_key is None
 
 
+def test_slot_consumed_round_trips(tmp_path):
+    path = tmp_path / "state.json"
+    state = load_state(path, default_cursor=date(1976, 1, 3))
+    assert state.slot_consumed is None
+    state.slot_consumed = 4
+    save_state(path, state)
+    assert load_state(path, default_cursor=date(1976, 1, 3)).slot_consumed == 4
+
+
+def test_slot_consumed_absent_in_legacy_state_file(tmp_path):
+    # State files written before skip-chart existed have no such key.
+    path = tmp_path / "state.json"
+    path.write_text('{"cursor": "1976-01-03", "wildcard_index": 0, "completed": {}}')
+    assert load_state(path, default_cursor=date(1976, 1, 3)).slot_consumed is None
+
+
 def test_save_state_leaves_no_shared_tmp_file_behind(tmp_path):
     # Two writers (the chart run and the poll run) must never share a temp
     # path, or interleaved writes can publish truncated/mixed JSON.

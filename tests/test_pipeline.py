@@ -1,10 +1,11 @@
 import json
 from datetime import date
 
+from fakes import FakeSource, FakeSpotify
+
 from fiftyfm.chart_source import ChartFetchError, Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import playlist_name, run
-from fiftyfm.spotify import SpotifyError
 from fiftyfm.state import load_state, run_key, save_state
 
 CFG = load_config()
@@ -12,46 +13,26 @@ ENV = {"DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/1/tok"}
 SONGS = [Song(i, f"Song {i}", f"Artist {i}") for i in range(1, 101)]
 
 
-class FakeSource:
-    def __init__(self, songs=None, exc=None):
-        self.songs, self.exc = songs or SONGS, exc
-
-    def fetch(self, slug, chart_date):
-        if self.exc:
-            raise self.exc
-        self.fetched = (slug, chart_date)
-        return self.songs
-
-
-class FakeSpotify:
-    def __init__(self, miss_titles=(), error_titles=()):
-        self.miss_titles = miss_titles
-        self.error_titles = error_titles
-        self.created = None
-
-    def find_track(self, song):
-        if song.title in self.error_titles:
-            raise SpotifyError(f"boom on {song.title}")
-        if song.title in self.miss_titles:
-            return None
-        return f"spotify:track:{song.rank}"
-
-    def create_playlist(self, name, description, uris):
-        self.created = (name, description, uris)
-        return "https://open.spotify.com/playlist/pl1"
-
-
 def test_playlist_name():
     assert (
-        playlist_name("Hot 100", date(1976, 3, 6))
+        playlist_name("Billboard", "Hot 100", date(1976, 3, 6), 40)
         == "Billboard Hot 100 Top 40 — March 6, 1976"
+    )
+
+
+def test_playlist_name_uses_publisher_and_actual_count():
+    assert (
+        playlist_name(
+            "Oricon", "Weekly Singles (Shōwa)", date(1976, 1, 12), 20
+        )
+        == "Oricon Weekly Singles (Shōwa) Top 20 — January 12, 1976"
     )
 
 
 def test_notify_receives_csv_attachment(tmp_path):
     posts = []
     code = run(
-        CFG, tmp_path / "state.json", ENV, FakeSource(), FakeSpotify(),
+        CFG, tmp_path / "state.json", ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),  # week 1 -> hot-100
         notify=lambda *a, **k: posts.append(k),
         notify_failure=lambda *a, **k: None,
@@ -67,7 +48,7 @@ def test_notify_receives_csv_attachment(tmp_path):
 
 def test_happy_path_advances_cursor(tmp_path, capsys):
     state_path = tmp_path / "state.json"
-    source, spotify = FakeSource(), FakeSpotify(miss_titles=("Song 7",))
+    source, spotify = FakeSource(SONGS), FakeSpotify(miss_titles=("Song 7",))
     posts = []
     code = run(
         CFG, state_path, ENV, source, spotify,
@@ -76,7 +57,8 @@ def test_happy_path_advances_cursor(tmp_path, capsys):
         notify_failure=lambda *a, **k: None,
     )
     assert code == 0
-    assert source.fetched == ("hot-100", date(1976, 1, 3))
+    assert source.fetched[0].slug == "hot-100"
+    assert source.fetched[1] == date(1976, 1, 3)
     name, _desc, uris = spotify.created
     assert name == "Billboard Hot 100 Top 40 — January 3, 1976"
     assert len(uris) == 39  # one miss out of top 40
@@ -89,7 +71,7 @@ def test_happy_path_advances_cursor(tmp_path, capsys):
 def test_wildcard_week_increments_index(tmp_path):
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 24),  # week 4 -> wildcard
         notify=lambda *a, **k: None,
         notify_failure=lambda *a, **k: None,
@@ -106,20 +88,20 @@ def test_replay_of_posted_run_is_noop(tmp_path):
         notify=lambda *a, **k: None,
         notify_failure=lambda *a, **k: None,
     )
-    run(CFG, state_path, ENV, FakeSource(), FakeSpotify(), **args)
+    run(CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(), **args)
     st1 = json.loads(state_path.read_text())
     # simulate operator resetting cursor to replay the same chart-date
     st1["cursor"] = "1976-01-03"
     state_path.write_text(json.dumps(st1))
     spotify = FakeSpotify()
-    code = run(CFG, state_path, ENV, FakeSource(), spotify, **args)
+    code = run(CFG, state_path, ENV, FakeSource(SONGS), spotify, **args)
     assert code == 0
     assert spotify.created is None  # nothing re-created
 
 
 def test_per_song_spotify_error_is_a_miss_not_fatal(tmp_path, capsys):
     state_path = tmp_path / "state.json"
-    source = FakeSource()
+    source = FakeSource(SONGS)
     spotify = FakeSpotify(error_titles=("Song 3",))
     posts = []
     code = run(
@@ -154,7 +136,7 @@ def test_fetch_failure_reports_and_returns_1(tmp_path):
 def test_dry_run_writes_nothing(tmp_path, capsys):
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), None,
+        CFG, state_path, ENV, FakeSource(SONGS), None,
         today=date(2026, 8, 3), dry_run=True,
         notify=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no post")),
         notify_failure=lambda *a, **k: None,
@@ -168,7 +150,7 @@ def test_dry_run_writes_nothing(tmp_path, capsys):
 
 def test_discord_failure_then_retry_reuses_playlist(tmp_path):
     state_path = tmp_path / "state.json"
-    source = FakeSource()
+    source = FakeSource(SONGS)
     spotify_first = FakeSpotify(miss_titles=("Song 7",))
 
     # First run: playlist created successfully, but Discord post fails
@@ -189,7 +171,10 @@ def test_discord_failure_then_retry_reuses_playlist(tmp_path):
     # State file should exist with playlist_url, matched count, and posted=False
     st = json.loads(state_path.read_text())
     key = run_key("hot-100", date(1976, 1, 3))
-    assert st["completed"][key]["playlist_url"] == "https://open.spotify.com/playlist/pl1"
+    assert (
+        st["completed"][key]["playlist_url"]
+        == "https://open.spotify.com/playlist/pl1"
+    )
     assert st["completed"][key]["matched"] == 39  # original match count preserved
     assert st["completed"][key]["posted"] is False
     assert st["cursor"] == "1976-01-03"  # cursor NOT advanced
@@ -213,7 +198,7 @@ def test_discord_failure_then_retry_reuses_playlist(tmp_path):
 
 def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     state_path = tmp_path / "state.json"
-    source = FakeSource()
+    source = FakeSource(SONGS)
     spotify_first = FakeSpotify()
 
     class DiscordError(Exception):
@@ -222,7 +207,7 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     def failing_notify(*a, **k):
         raise DiscordError("discord is down")
 
-    # First run: week 4 -> wildcard chart (easy-listening at the start cursor).
+    # First run: week 4 -> wildcard chart (oricon-showa at the start cursor).
     # Playlist gets created but the Discord post fails.
     code = run(
         CFG, state_path, ENV, source, spotify_first,
@@ -232,7 +217,7 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     )
     assert code == 1
 
-    wildcard_key = run_key("easy-listening", date(1976, 1, 3))
+    wildcard_key = run_key("oricon-showa", date(1976, 1, 3))
     st = json.loads(state_path.read_text())
     assert wildcard_key in st["completed"]
     assert st["completed"][wildcard_key]["posted"] is False
@@ -256,14 +241,46 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     hot100_key = run_key("hot-100", date(1976, 1, 3))
     assert hot100_key not in st.completed  # no duplicate playlist/record
     assert st.completed[wildcard_key]["posted"] is True  # original record resumed
-    assert posts[0]["chart_name"] == "Easy Listening"
+    assert posts[0]["chart_name"] == "Weekly Singles (Shōwa)"
     assert st.cursor == date(1976, 1, 24)  # cursor advanced after resume
+
+
+def test_state_key_pins_to_cursor_while_display_uses_actual_chart_date(tmp_path):
+    # The two dates in play: the CURSOR date (a Saturday), which state keys
+    # are built from via run_key, and the ACTUAL chart date returned by the
+    # source (Monday, for Oricon), which is what gets displayed. Billboard
+    # tests never exercise this because FakeSource defaults chart_date to
+    # equal cursor_date — here they are deliberately 9 days apart, as they
+    # are for a real Oricon fetch, so collapsing the two back into one
+    # value would fail these assertions.
+    state_path = tmp_path / "state.json"
+    cursor_date = date(1976, 1, 3)
+    actual_date = date(1976, 1, 12)
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(SONGS, chart_date=actual_date), FakeSpotify(),
+        today=date(2026, 8, 3),  # week 1 -> hot-100
+        notify=lambda *a, **k: posts.append(k),
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+
+    expected_key = run_key("hot-100", cursor_date)
+    st = load_state(state_path, default_cursor=CFG.start_date)
+    assert expected_key in st.completed
+    assert all(not k.endswith(f"@{actual_date.isoformat()}") for k in st.completed)
+    assert st.last_posted_key == expected_key
+
+    kwargs = posts[0]
+    assert "January 12, 1976" in kwargs["thread_title"]
+    assert "January 3, 1976" not in kwargs["thread_title"]
+    assert "1976-01-12" in kwargs["csv_filename"]
 
 
 def test_thread_id_and_last_posted_key_are_recorded(tmp_path):
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),  # week 1 -> hot-100
         notify=lambda *a, **k: "99887766",
         notify_failure=lambda *a, **k: None,
@@ -279,7 +296,7 @@ def test_missing_thread_id_is_not_fatal(tmp_path):
     # An older webhook response, or one without a body, still posts fine.
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),
         notify=lambda *a, **k: None,
         notify_failure=lambda *a, **k: None,
@@ -296,7 +313,7 @@ def test_recap_is_passed_to_the_new_thread(tmp_path):
     posts = []
     # First week: post a thread and record a poll against it.
     run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),
         notify=lambda *a, **k: "99887766",
         notify_failure=lambda *a, **k: None,
@@ -310,7 +327,7 @@ def test_recap_is_passed_to_the_new_thread(tmp_path):
 
     # Second week: the recap must reach post_playlist.
     run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 10),  # week 2
         notify=lambda *a, **k: posts.append(k) or "111",
         notify_failure=lambda *a, **k: None,
@@ -345,7 +362,7 @@ def test_recap_failure_outside_build_recaps_own_try_does_not_fail_the_run(
     )
     posts = []
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 10),  # week 2
         notify=lambda *a, **k: posts.append(k) or "111",
         notify_failure=lambda *a, **k: (_ for _ in ()).throw(
@@ -364,11 +381,39 @@ def test_recap_failure_outside_build_recaps_own_try_does_not_fail_the_run(
     assert st.completed[new_key]["posted"] is True
 
 
+def test_run_resume_path_ignores_slot_consumed(tmp_path):
+    # Fix 4: slot_consumed only governs a *fresh* chart selection. A resume
+    # is finishing an in-flight chart from a previous failed post and must
+    # keep using its recorded week regardless of any leftover slot_consumed
+    # - and must leave that leftover untouched, since it still belongs to
+    # whatever future fresh selection has not happened yet.
+    state_path = tmp_path / "state.json"
+    state = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    state.completed[key] = {
+        "playlist_url": "u", "matched": 40, "posted": False, "week": 1,
+    }
+    state.slot_consumed = 3
+    save_state(state_path, state)
+
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: posts.append(k) or "tid",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    assert posts[0]["chart_name"] == "Hot 100"  # resumed at its recorded week
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    assert st.slot_consumed == 3  # untouched by the resume path
+
+
 def test_no_recap_on_the_first_ever_run(tmp_path):
     state_path = tmp_path / "state.json"
     posts = []
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),
         notify=lambda *a, **k: posts.append(k) or "111",
         notify_failure=lambda *a, **k: None,

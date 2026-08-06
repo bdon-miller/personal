@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fiftyfm"
 version = "0.1.0"
-description = "Weekly historical Billboard chart -> Spotify playlist -> Discord"
+description = "Weekly historical Billboard/Oricon chart -> Spotify playlist -> Discord"
 requires-python = ">=3.11"
 dependencies = [
     "billboard.py>=7.0",
@@ -19,7 +19,7 @@ dev = ["pytest>=8"]
 fiftyfm = "fiftyfm.cli:main"
 
 [tool.setuptools.package-data]
-fiftyfm = ["charts.toml"]
+fiftyfm = ["charts.toml", "data/*.csv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

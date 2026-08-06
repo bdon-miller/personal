@@ -16,6 +16,9 @@ class ChartDef:
     display_name: str
     available_from: date
     available_until: date | None = None
+    source: str = "billboard"
+    publisher: str = "Billboard"
+    strict_match: bool = False
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,9 @@ def load_config(path: Path | None = None) -> Config:
             display_name=c["display_name"],
             available_from=c["available_from"],
             available_until=c.get("available_until"),
+            source=c.get("source", "billboard"),
+            publisher=c.get("publisher", "Billboard"),
+            strict_match=c.get("strict_match", False),
         )
     sched = data["schedule"]
     for slot in sched["slots"]:

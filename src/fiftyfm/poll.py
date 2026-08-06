@@ -60,9 +60,12 @@ def run_poll(
             return 0
 
         chart_id, _, iso_date = key.partition("@")
-        chart = config.charts[chart_id]
+        chart = config.charts.get(chart_id)
+        if chart is None:
+            print(f"{key} chart is no longer configured; nothing to poll")
+            return 0
         chart_date = date.fromisoformat(iso_date)
-        songs = source.fetch(chart.slug, chart_date)[:TOP_N]
+        songs = source.fetch(chart, chart_date).songs[:TOP_N]
         if not songs:
             print(f"{key} chart came back empty; nothing to poll")
             return 0
@@ -149,6 +152,8 @@ def build_recap(
     thread_id = record.get("thread_id")
     ids = record.get("poll_message_ids") or {}
     if not thread_id or not ids.get("favorite") or not ids.get("least_favorite"):
+        print(f"{key} has no thread_id or poll_message_ids; skipping recap",
+              file=sys.stderr)
         return None
     try:
         favorite, fav_done = fetch_results(

@@ -1,8 +1,11 @@
 from datetime import date
 
+from fakes import FakeSource, FakeSpotify
+
 from fiftyfm.chart_source import Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import run as pipeline_run
+from fiftyfm.pipeline import skip as pipeline_skip
 from fiftyfm.poll import (
     MAX_ANSWER_CHARS,
     OTHER_ANSWER,
@@ -22,33 +25,6 @@ ENV = {
     "LASTFM_API_KEY": "key123",
 }
 KEY = run_key("hot-100", date(1976, 1, 3))
-
-
-class FakeSource:
-    def __init__(self, songs=None, exc=None):
-        self.songs = songs if songs is not None else FORTY
-        self.exc = exc
-        self.fetched = None
-
-    def fetch(self, slug, chart_date):
-        if self.exc:
-            raise self.exc
-        self.fetched = (slug, chart_date)
-        return self.songs
-
-
-class FakeSpotify:
-    """Minimal enough for pipeline.run: never misses, records the create."""
-
-    def __init__(self):
-        self.created = None
-
-    def find_track(self, song):
-        return f"spotify:track:{song.rank}"
-
-    def create_playlist(self, name, description, uris):
-        self.created = (name, description, uris)
-        return "https://open.spotify.com/playlist/pl1"
 
 
 def seed_state(tmp_path, *, thread_id="99887766", poll_posted=False):
@@ -118,7 +94,7 @@ def test_poll_answers_handles_short_charts():
 
 def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
     path = seed_state(tmp_path)
-    source = FakeSource()
+    source = FakeSource(FORTY)
     posted = []
     code = run_poll(
         CFG, path, ENV, source,
@@ -127,7 +103,8 @@ def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
         notify_failure=lambda *a, **k: None,
     )
     assert code == 0
-    assert source.fetched == ("hot-100", date(1976, 1, 3))
+    assert source.fetched[0].slug == "hot-100"
+    assert source.fetched[1] == date(1976, 1, 3)
     assert len(posted) == 2
     assert posted[0]["thread_id"] == "99887766"
     assert posted[0]["question"] == "Favorite song of the week?"
@@ -146,7 +123,7 @@ def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
 def test_run_poll_is_idempotent(tmp_path):
     path = seed_state(tmp_path, poll_posted=True)
     code = run_poll(
-        CFG, path, ENV, FakeSource(),
+        CFG, path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(
             AssertionError("must not double-post")
@@ -159,7 +136,7 @@ def test_run_poll_is_idempotent(tmp_path):
 def test_run_poll_skips_threads_without_an_id(tmp_path, capsys):
     path = seed_state(tmp_path, thread_id=None)
     code = run_poll(
-        CFG, path, ENV, FakeSource(),
+        CFG, path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(
             AssertionError("no thread to post into")
@@ -175,7 +152,7 @@ def test_run_poll_skips_threads_without_an_id(tmp_path, capsys):
 def test_run_poll_noop_without_last_posted_key(tmp_path, capsys):
     path = tmp_path / "state.json"
     code = run_poll(
-        CFG, path, ENV, FakeSource(),
+        CFG, path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(AssertionError("nothing to poll")),
         notify_failure=lambda *a, **k: (_ for _ in ()).throw(
@@ -204,7 +181,7 @@ def test_run_poll_reports_fetch_failure(tmp_path):
 def test_run_poll_dry_run_posts_nothing(tmp_path, capsys):
     path = seed_state(tmp_path)
     code = run_poll(
-        CFG, path, ENV, FakeSource(), dry_run=True,
+        CFG, path, ENV, FakeSource(FORTY), dry_run=True,
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(AssertionError("no post")),
         notify_failure=lambda *a, **k: None,
@@ -250,6 +227,29 @@ def test_run_poll_slices_to_top_40(tmp_path):
     )
     # Highest playcount among ranks 1-40 is rank 40, not rank 100.
     assert posted[0]["answers"][0] == "Song 40 — Artist 40"
+
+
+def test_poll_skips_unconfigured_chart(tmp_path, capsys):
+    """A chart removed from charts.toml must not crash the next poll run."""
+    from fakes import FakeSource  # tests/ is on sys.path; match existing imports
+
+    from fiftyfm.config import load_config
+    from fiftyfm.poll import run_poll
+    from fiftyfm.state import State, save_state
+
+    path = tmp_path / "state.json"
+    state = State(cursor=date(1976, 1, 3))
+    state.last_posted_key = "easy-listening@1976-01-03"
+    state.completed["easy-listening@1976-01-03"] = {
+        "posted": True, "thread_id": "t1", "playlist_url": "u", "week": 4,
+    }
+    save_state(path, state)
+    rc = run_poll(
+        load_config(), path, {"DISCORD_WEBHOOK_URL": "hook"},
+        FakeSource(songs=[]), dry_run=True,
+    )
+    assert rc == 0
+    assert "no longer configured" in capsys.readouterr().out
 
 
 def test_recap_text_names_both_winners():
@@ -340,6 +340,73 @@ def test_build_recap_none_without_poll_message_ids(tmp_path):
     ) is None
 
 
+def test_skip_then_run_poll_then_run_compose_through_one_state_file(tmp_path):
+    """skip moves last_posted_key to the replacement thread specifically so
+    Saturday's polls target it and the next Monday recaps it, not the
+    superseded original. Task 3 only tested that the field moves; this
+    drives run_poll and the next pipeline_run for real against one state
+    file and checks what they actually did with it - poll.py and
+    pipeline.py have no compile-time coupling, so a break here is silent.
+    """
+    state_path = tmp_path / "state.json"
+
+    # Monday: the chart run posts a thread nobody wants.
+    code = pipeline_run(
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
+        today=date(2026, 8, 3),  # week 1 -> hot-100
+        notify=lambda *a, **k: "tid-original",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    original_key = run_key("hot-100", date(1976, 1, 3))
+
+    # The operator skips it; last_posted_key moves to the replacement.
+    code = pipeline_skip(
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: "tid-replacement",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    replacement_key = st.last_posted_key
+    assert replacement_key != original_key
+    assert st.completed[replacement_key]["thread_id"] == "tid-replacement"
+
+    # Saturday: polls must land in the replacement's thread, not the
+    # original's.
+    posted = []
+    code = run_poll(
+        CFG, state_path, ENV, FakeSource(FORTY),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: (posted.append(k), f"msg{len(posted)}")[1],
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    assert posted[0]["thread_id"] == "tid-replacement"
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    ids = st.completed[replacement_key]["poll_message_ids"]
+    assert ids == {"favorite": "msg1", "least_favorite": "msg2"}
+    assert st.completed[original_key].get("poll_posted") is not True
+
+    # Next Monday: the recap must derive from the replacement's poll
+    # message ids and reach notify.
+    week2_posts = []
+    code = pipeline_run(
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
+        today=date(2026, 8, 10),  # week 2
+        notify=lambda *a, **k: week2_posts.append(k) or "tid-week2",
+        notify_failure=lambda *a, **k: None,
+        fetch_results=lambda url, **k: (
+            ({"Song 1 — Artist 1": 12}, True)
+            if k["message_id"] == ids["favorite"]
+            else ({"Song 2 — Artist 2": 9}, True)
+        ),
+    )
+    assert code == 0
+    assert "Song 1 — Artist 1 (12 votes)" in week2_posts[0]["recap"]
+
+
 def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     """pipeline.run (Monday) and run_poll (Saturday) share one state.json
     in production. Nothing previously exercised them back-to-back against
@@ -352,7 +419,7 @@ def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     # Week 1 Monday: the chart run posts a new thread.
     week1_posts = []
     code = pipeline_run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
         today=date(2026, 8, 3),  # week 1 -> hot-100
         notify=lambda *a, **k: week1_posts.append(k) or "99887766",
         notify_failure=lambda *a, **k: None,
@@ -370,7 +437,7 @@ def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     # run just wrote (the lost-update failure mode Fix 1 addresses).
     posted = []
     code = run_poll(
-        CFG, state_path, ENV, FakeSource(),
+        CFG, state_path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (posted.append(k), f"msg{len(posted)}")[1],
         notify_failure=lambda *a, **k: None,
@@ -390,7 +457,7 @@ def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     # using the exact message ids run_poll actually wrote above.
     week2_posts = []
     code = pipeline_run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
         today=date(2026, 8, 10),  # week 2
         notify=lambda *a, **k: week2_posts.append(k) or "111",
         notify_failure=lambda *a, **k: None,
