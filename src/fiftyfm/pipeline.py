@@ -24,6 +24,84 @@ def playlist_name(display_name: str, chart_date: date) -> str:
     return f"Billboard {display_name} Top {TOP_N} — {human_date(chart_date)}"
 
 
+def post_chart(
+    state,
+    state_path: Path,
+    env: Mapping[str, str],
+    spotify: SpotifyClient,
+    *,
+    chart,
+    chart_date: date,
+    week: int,
+    songs: list,
+    recap: str | None = None,
+    notify=post_playlist,
+) -> None:
+    """Create the playlist, post the thread, and record it in `state`.
+
+    Saves once before posting so a Discord failure leaves a reusable
+    playlist behind. Deliberately does not touch `state.cursor` and does not
+    save afterwards: `run` advances the cursor and `skip` usually does not,
+    so the caller owns that decision and the final write.
+    """
+    webhook = env.get("DISCORD_WEBHOOK_URL", "")
+    key = run_key(chart.id, chart_date)
+    name = playlist_name(chart.display_name, chart_date)
+    record = state.completed.get(key, {})
+    playlist_url = record.get("playlist_url")
+    matched = 0
+    if playlist_url is None:
+        uris = []
+        for song in songs:
+            try:
+                uri = spotify.find_track(song)
+            except SpotifyError as exc:
+                uri = None
+                print(
+                    f"spotify lookup failed for {song.title} — {song.artist}: {exc}",
+                    file=sys.stderr,
+                )
+            if uri:
+                uris.append(uri)
+                matched += 1
+            else:
+                print(f"no match: {song.title} — {song.artist}", file=sys.stderr)
+        description = (
+            f"The Billboard {chart.display_name} chart for the week of "
+            f"{chart_date.isoformat()}, courtesy of fiftyfm."
+        )
+        playlist_url = spotify.create_playlist(name, description, uris)
+        state.completed[key] = {
+            "playlist_url": playlist_url,
+            "matched": matched,
+            "posted": False,
+            "week": week,
+        }
+        save_state(state_path, state)
+    else:
+        matched = record.get("matched", len(songs))
+
+    thread_id = notify(
+        webhook,
+        thread_title=name,
+        chart_name=chart.display_name,
+        chart_date=chart_date,
+        songs=songs,
+        matched=matched,
+        playlist_url=playlist_url,
+        csv_filename=f"{chart.id}-{chart_date.isoformat()}.csv",
+        csv_data=songs_csv(songs).encode(),
+        recap=recap,
+    )
+    state.completed[key]["posted"] = True
+    if thread_id:
+        state.completed[key]["thread_id"] = thread_id
+    state.last_posted_key = key
+    if week >= 4:
+        state.wildcard_index += 1
+    print(f"done: {name} -> {playlist_url}")
+
+
 def run(
     config: Config,
     state_path: Path,
@@ -79,59 +157,20 @@ def run(
             return 0
 
         assert spotify is not None
-        playlist_url = record.get("playlist_url")
-        uris, matched = [], 0
-        if playlist_url is None:
-            for song in songs:
-                try:
-                    uri = spotify.find_track(song)
-                except SpotifyError as exc:
-                    uri = None
-                    print(
-                        f"spotify lookup failed for {song.title} — {song.artist}: {exc}",
-                        file=sys.stderr,
-                    )
-                if uri:
-                    uris.append(uri)
-                    matched += 1
-                else:
-                    print(f"no match: {song.title} — {song.artist}", file=sys.stderr)
-            description = (
-                f"The Billboard {chart.display_name} chart for the week of "
-                f"{chart_date.isoformat()}, courtesy of fiftyfm."
-            )
-            playlist_url = spotify.create_playlist(name, description, uris)
-            state.completed[key] = {
-                "playlist_url": playlist_url,
-                "matched": matched,
-                "posted": False,
-                "week": week,
-            }
-            save_state(state_path, state)
-        else:
-            matched = record.get("matched", len(songs))
-
-        thread_id = notify(
-            webhook,
-            thread_title=name,
-            chart_name=chart.display_name,
+        post_chart(
+            state,
+            state_path,
+            env,
+            spotify,
+            chart=chart,
             chart_date=chart_date,
+            week=week,
             songs=songs,
-            matched=matched,
-            playlist_url=playlist_url,
-            csv_filename=f"{chart.id}-{chart_date.isoformat()}.csv",
-            csv_data=songs_csv(songs).encode(),
             recap=recap,
+            notify=notify,
         )
-        state.completed[key]["posted"] = True
-        if thread_id:
-            state.completed[key]["thread_id"] = thread_id
-        state.last_posted_key = key
         state.cursor = advance(state.cursor, config.weeks_per_run)
-        if week >= 4:
-            state.wildcard_index += 1
         save_state(state_path, state)
-        print(f"done: {name} -> {playlist_url}")
         return 0
     except Exception as exc:  # noqa: BLE001 - top-level run boundary
         print(f"run failed: {exc}", file=sys.stderr)
