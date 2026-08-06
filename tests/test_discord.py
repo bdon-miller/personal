@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from fiftyfm.chart_source import Song
-from fiftyfm.discord import DiscordError, post_failure, post_playlist, songs_csv
+from fiftyfm.discord import DiscordError, post_failure, post_playlist, post_poll, songs_csv
 
 
 class FakeResponse:
@@ -166,3 +166,67 @@ def test_post_playlist_returns_none_without_channel_id():
         playlist_url="u",
         session=session,
     ) is None
+
+
+def test_post_poll_builds_poll_payload():
+    session = FakeSession(payload={"id": "777", "channel_id": "99"})
+    message_id = post_poll(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_id="99887766",
+        question="Favorite song of the week?",
+        answers=["Convoy — C.W. McCall", "Other — reply in thread"],
+        session=session,
+    )
+    assert message_id == "777"
+    url, kwargs = session.calls[0]
+    assert url == (
+        "https://discord.com/api/webhooks/1/tok"
+        "?thread_id=99887766&wait=true"
+    )
+    poll = kwargs["json"]["poll"]
+    assert poll["question"] == {"text": "Favorite song of the week?"}
+    assert poll["allow_multiselect"] is True
+    assert poll["duration"] == 48
+    assert poll["layout_type"] == 1
+    assert poll["answers"] == [
+        {"poll_media": {"text": "Convoy — C.W. McCall"}},
+        {"poll_media": {"text": "Other — reply in thread"}},
+    ]
+
+
+def test_post_poll_sends_no_emoji_keys():
+    session = FakeSession(payload={"id": "777"})
+    post_poll(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_id="99",
+        question="Favorite song of the week?",
+        answers=["Convoy — C.W. McCall"],
+        session=session,
+    )
+    answer = session.calls[0][1]["json"]["poll"]["answers"][0]
+    assert "emoji" not in answer["poll_media"]
+
+
+def test_post_poll_replaces_existing_query_string():
+    session = FakeSession(payload={"id": "777"})
+    post_poll(
+        "https://discord.com/api/webhooks/1/tok?thread_id=OLD",
+        thread_id="NEW",
+        question="q",
+        answers=["a"],
+        session=session,
+    )
+    url, _kwargs = session.calls[0]
+    assert url == "https://discord.com/api/webhooks/1/tok?thread_id=NEW&wait=true"
+
+
+def test_post_poll_raises_on_error():
+    session = FakeSession(status_code=400, payload={"message": "bad poll"})
+    with pytest.raises(DiscordError):
+        post_poll(
+            "https://discord.com/api/webhooks/1/tok",
+            thread_id="99",
+            question="q",
+            answers=["a"],
+            session=session,
+        )

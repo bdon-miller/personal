@@ -12,6 +12,11 @@ from .chart_source import Song
 TUNEMYMUSIC_URL = "https://www.tunemymusic.com/transfer"
 
 
+def _webhook_base(webhook_url: str) -> str:
+    """The webhook URL without any query string of its own."""
+    return webhook_url.partition("?")[0]
+
+
 class DiscordError(RuntimeError):
     pass
 
@@ -104,3 +109,30 @@ def post_failure(webhook_url: str, message: str, session=None) -> None:
         )
     except Exception:
         pass
+
+
+def post_poll(
+    webhook_url: str,
+    *,
+    thread_id: str,
+    question: str,
+    answers: list[str],
+    duration: int = 48,
+    session=None,
+) -> str:
+    """Post a single poll into an existing thread; returns its message id."""
+    session = session or requests.Session()
+    payload = {
+        "poll": {
+            "question": {"text": question},
+            "answers": [{"poll_media": {"text": a}} for a in answers],
+            "duration": duration,
+            "allow_multiselect": True,
+            "layout_type": 1,
+        }
+    }
+    url = f"{_webhook_base(webhook_url)}?thread_id={thread_id}&wait=true"
+    resp = session.post(url, json=payload, timeout=30)
+    if resp.status_code >= 300:
+        raise DiscordError(f"poll post returned {resp.status_code}: {resp.text}")
+    return resp.json()["id"]
