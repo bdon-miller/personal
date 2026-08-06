@@ -30,17 +30,17 @@ class FakeSession:
         self.payload = payload if payload is not None else {"channel_id": "555"}
         self.calls = []
 
-    def post(self, url, **kwargs):
+    def _record(self, url, **kwargs):
         if self.exc:
             raise self.exc
         self.calls.append((url, kwargs))
         return FakeResponse(self.status_code, self.payload)
 
     def get(self, url, **kwargs):
-        if self.exc:
-            raise self.exc
-        self.calls.append((url, kwargs))
-        return FakeResponse(self.status_code, self.payload)
+        return self._record(url, **kwargs)
+
+    def post(self, url, **kwargs):
+        return self._record(url, **kwargs)
 
 
 SONGS = [Song(i, f"Song {i}", f"Artist {i}") for i in range(1, 41)]
