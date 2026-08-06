@@ -310,6 +310,24 @@ def test_get_poll_results_reports_unfinalized():
     assert finalized is False
 
 
+def test_get_poll_results_strips_trailing_slash_from_webhook_url():
+    # A webhook URL saved with a trailing slash must not produce a doubled
+    # slash before /messages/<id> - Discord 404s on that and the recap
+    # silently vanishes.
+    session = FakeSession(payload=POLL_MESSAGE)
+    get_poll_results(
+        "https://discord.com/api/webhooks/1/tok/",
+        thread_id="99887766",
+        message_id="777",
+        session=session,
+    )
+    url, _kwargs = session.calls[0]
+    assert url == (
+        "https://discord.com/api/webhooks/1/tok/messages/777"
+        "?thread_id=99887766"
+    )
+
+
 def test_get_poll_results_raises_on_error():
     session = FakeSession(status_code=404, payload={"message": "Unknown Message"})
     with pytest.raises(DiscordError):

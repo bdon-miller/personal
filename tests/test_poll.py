@@ -2,6 +2,7 @@ from datetime import date
 
 from fiftyfm.chart_source import Song
 from fiftyfm.config import load_config
+from fiftyfm.pipeline import run as pipeline_run
 from fiftyfm.poll import (
     MAX_ANSWER_CHARS,
     OTHER_ANSWER,
@@ -34,6 +35,20 @@ class FakeSource:
             raise self.exc
         self.fetched = (slug, chart_date)
         return self.songs
+
+
+class FakeSpotify:
+    """Minimal enough for pipeline.run: never misses, records the create."""
+
+    def __init__(self):
+        self.created = None
+
+    def find_track(self, song):
+        return f"spotify:track:{song.rank}"
+
+    def create_playlist(self, name, description, uris):
+        self.created = (name, description, uris)
+        return "https://open.spotify.com/playlist/pl1"
 
 
 def seed_state(tmp_path, *, thread_id="99887766", poll_posted=False):
@@ -202,6 +217,26 @@ def test_run_poll_dry_run_posts_nothing(tmp_path, capsys):
     assert "poll_posted" not in st.completed[KEY]
 
 
+def test_run_poll_skips_an_empty_chart(tmp_path, capsys):
+    # poll_answers([], {}) would otherwise return a single-option poll
+    # whose only answer is the "Other" escape hatch.
+    path = seed_state(tmp_path)
+    code = run_poll(
+        CFG, path, ENV, FakeSource(songs=[]),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: (_ for _ in ()).throw(
+            AssertionError("must not post a one-answer poll")
+        ),
+        notify_failure=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("not a failure")
+        ),
+    )
+    assert code == 0
+    assert "empty" in capsys.readouterr().out
+    st = load_state(path, default_cursor=date(1976, 1, 3))
+    assert "poll_posted" not in st.completed[KEY]
+
+
 def test_run_poll_slices_to_top_40(tmp_path):
     # The source returns 100 rows; only the 40 that were posted may be polled.
     long_chart = [Song(i, f"Song {i}", f"Artist {i}") for i in range(1, 101)]
@@ -303,3 +338,72 @@ def test_build_recap_none_without_poll_message_ids(tmp_path):
             AssertionError("nothing to fetch")
         ),
     ) is None
+
+
+def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
+    """pipeline.run (Monday) and run_poll (Saturday) share one state.json
+    in production. Nothing previously exercised them back-to-back against
+    a single file - the gap that let two writers race on save_state's
+    temp path through review. This drives both entry points for real,
+    across two simulated weeks, and checks the state each actually wrote.
+    """
+    state_path = tmp_path / "state.json"
+
+    # Week 1 Monday: the chart run posts a new thread.
+    week1_posts = []
+    code = pipeline_run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),  # week 1 -> hot-100
+        notify=lambda *a, **k: week1_posts.append(k) or "99887766",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    week1_key = run_key("hot-100", date(1976, 1, 3))
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    assert st.last_posted_key == week1_key
+    assert st.completed[week1_key]["thread_id"] == "99887766"
+    assert st.completed[week1_key]["posted"] is True
+    cursor_after_week1 = st.cursor
+
+    # Week 1 Saturday: the poll run posts into that thread and writes its
+    # own record back via save_state - without clobbering what the chart
+    # run just wrote (the lost-update failure mode Fix 1 addresses).
+    posted = []
+    code = run_poll(
+        CFG, state_path, ENV, FakeSource(),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: (posted.append(k), f"msg{len(posted)}")[1],
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    assert st.completed[week1_key]["poll_posted"] is True
+    ids = st.completed[week1_key]["poll_message_ids"]
+    assert ids == {"favorite": "msg1", "least_favorite": "msg2"}
+    # Lost-update assertion: the poll run loaded state after the chart run
+    # saved, so its own save must still carry the chart run's posted=True
+    # and advanced cursor forward - not republish the pre-chart-run values.
+    assert st.completed[week1_key]["posted"] is True
+    assert st.cursor == cursor_after_week1
+
+    # Week 2 Monday: the new chart run recaps week 1's now-finalized polls,
+    # using the exact message ids run_poll actually wrote above.
+    week2_posts = []
+    code = pipeline_run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 10),  # week 2
+        notify=lambda *a, **k: week2_posts.append(k) or "111",
+        notify_failure=lambda *a, **k: None,
+        fetch_results=lambda url, **k: (
+            ({"Song 1 — Artist 1": 12}, True)
+            if k["message_id"] == ids["favorite"]
+            else ({"Song 2 — Artist 2": 9}, True)
+        ),
+    )
+    assert code == 0
+    assert "Song 1 — Artist 1 (12 votes)" in week2_posts[0]["recap"]
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    # Week 2 at this cursor resolves to "soul" (mainstream-rock isn't
+    # available until 1981), per charts.toml's slot priority list.
+    week2_key = run_key("soul", date(1976, 1, 24))
+    assert st.last_posted_key == week2_key

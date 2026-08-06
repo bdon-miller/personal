@@ -2,6 +2,7 @@
 Description=fiftyfm weekly song polls
 Wants=network-online.target
 After=network-online.target
+After=fiftyfm.service
 
 [Service]
 Type=oneshot

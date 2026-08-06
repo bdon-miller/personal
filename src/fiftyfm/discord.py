@@ -13,8 +13,8 @@ TUNEMYMUSIC_URL = "https://www.tunemymusic.com/transfer"
 
 
 def _webhook_base(webhook_url: str) -> str:
-    """The webhook URL without any query string of its own."""
-    return webhook_url.partition("?")[0]
+    """The webhook URL without any query string or trailing slash."""
+    return webhook_url.partition("?")[0].rstrip("/")
 
 
 class DiscordError(RuntimeError):

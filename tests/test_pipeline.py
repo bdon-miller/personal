@@ -323,6 +323,47 @@ def test_recap_is_passed_to_the_new_thread(tmp_path):
     assert "Song 1 — Artist 1 (12 votes)" in posts[0]["recap"]
 
 
+def test_recap_failure_outside_build_recaps_own_try_does_not_fail_the_run(
+    tmp_path,
+):
+    # A recap must never fail the Monday run (design invariant). build_recap
+    # only guards its own fetch_results calls internally; a state record
+    # that doesn't deserialize as a dict raises AttributeError further down
+    # (poll.py's `record.get(...)` / `ids.get(...)` chain), outside that
+    # inner try. The call site in pipeline.run must catch that too.
+    state_path = tmp_path / "state.json"
+    key = run_key("hot-100", date(1976, 1, 3))
+    state_path.write_text(
+        json.dumps(
+            {
+                "cursor": "1976-01-24",
+                "wildcard_index": 0,
+                "completed": {key: "corrupt"},
+                "last_posted_key": key,
+            }
+        )
+    )
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 10),  # week 2
+        notify=lambda *a, **k: posts.append(k) or "111",
+        notify_failure=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("a recap problem must not be treated as a run failure")
+        ),
+    )
+    assert code == 0
+    assert posts[0]["recap"] is None
+    # The chart post itself must still have gone through despite the corrupt
+    # prior record - it is untouched, but the new week's run must proceed.
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    assert st.completed[key] == "corrupt"  # untouched, not overwritten
+    # Week 2 at this cursor resolves to "soul" (mainstream-rock isn't
+    # available until 1981), per charts.toml's slot priority list.
+    new_key = run_key("soul", date(1976, 1, 24))
+    assert st.completed[new_key]["posted"] is True
+
+
 def test_no_recap_on_the_first_ever_run(tmp_path):
     state_path = tmp_path / "state.json"
     posts = []

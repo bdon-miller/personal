@@ -39,7 +39,12 @@ def run(
     webhook = env.get("DISCORD_WEBHOOK_URL", "")
     try:
         state = load_state(state_path, default_cursor=config.start_date)
-        recap = None if dry_run else build_recap(state, webhook, fetch_results)
+        recap = None
+        if not dry_run:
+            try:
+                recap = build_recap(state, webhook, fetch_results)
+            except Exception as exc:  # noqa: BLE001 - a recap never fails the run
+                print(f"recap failed: {exc}", file=sys.stderr)
         chart_date = snap_to_saturday(state.cursor)
 
         resume_key = next(

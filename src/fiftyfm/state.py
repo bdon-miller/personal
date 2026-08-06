@@ -42,6 +42,6 @@ def save_state(path: Path, state: State) -> None:
         },
         indent=2,
     )
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(payload)
     os.replace(tmp, path)

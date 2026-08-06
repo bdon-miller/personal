@@ -46,16 +46,27 @@ Then fill in `/etc/fiftyfm/env`:
 2. **Discord**: in a **forum channel**'s settings, create a webhook and
    paste its URL.
 
-3. **Last.fm**: create an API key at
-   https://www.last.fm/api/account/create (free, no OAuth). Put it in
-   `LASTFM_API_KEY`.
+3. **Last.fm** (optional, but recommended): create an API key at
+   https://www.last.fm/api/account/create (free, no OAuth) and put it in
+   `LASTFM_API_KEY`. Without it, the weekly poll's ballot falls back to
+   plain Billboard chart-rank order instead of Last.fm play counts - the
+   polls still go out either way.
 
-Verify without side effects, then for real:
+Verify, then run for real:
 
     /opt/fiftyfm/.venv/bin/fiftyfm run --dry-run
     /opt/fiftyfm/.venv/bin/fiftyfm poll --dry-run
     sudo systemctl start fiftyfm.service
     journalctl -u fiftyfm.service
+
+`--dry-run` skips Discord and Spotify writes, but it still performs a real
+Billboard fetch and, for `poll --dry-run`, up to 40 Last.fm lookups - it is
+not side-effect-free against those upstream APIs.
+
+Upgrading an existing install skips exactly one poll week: the first
+Saturday after upgrade has no `thread_id` recorded for the prior week's
+thread, so that week's `poll` run is a no-op. It self-heals the following
+week once a new thread has been posted with the upgraded code.
 
 ## Operations
 

@@ -63,6 +63,9 @@ def run_poll(
         chart = config.charts[chart_id]
         chart_date = date.fromisoformat(iso_date)
         songs = source.fetch(chart.slug, chart_date)[:TOP_N]
+        if not songs:
+            print(f"{key} chart came back empty; nothing to poll")
+            return 0
         counts = playcounts_fn(env.get("LASTFM_API_KEY", ""), songs)
         answers = poll_answers(songs, counts)
 
