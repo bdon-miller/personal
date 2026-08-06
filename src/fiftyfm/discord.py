@@ -136,3 +136,38 @@ def post_poll(
     if resp.status_code >= 300:
         raise DiscordError(f"poll post returned {resp.status_code}: {resp.text}")
     return resp.json()["id"]
+
+
+def get_poll_results(
+    webhook_url: str,
+    *,
+    thread_id: str,
+    message_id: str,
+    session=None,
+) -> tuple[dict[str, int], bool]:
+    """Read back a poll this webhook sent: (counts by answer text, finalized).
+
+    Works with the webhook token alone - no bot token or message-content
+    intent required. Any query string on `webhook_url` is discarded; the
+    thread is addressed by the explicit `thread_id`.
+    """
+    session = session or requests.Session()
+    url = (
+        f"{_webhook_base(webhook_url)}/messages/{message_id}"
+        f"?thread_id={thread_id}"
+    )
+    resp = session.get(url, timeout=30)
+    if resp.status_code >= 300:
+        raise DiscordError(
+            f"poll fetch returned {resp.status_code}: {resp.text}"
+        )
+    poll = resp.json().get("poll") or {}
+    results = poll.get("results") or {}
+    by_id = {
+        row["id"]: row["count"] for row in results.get("answer_counts", [])
+    }
+    counts = {
+        a["poll_media"]["text"]: by_id.get(a["answer_id"], 0)
+        for a in poll.get("answers", [])
+    }
+    return counts, bool(results.get("is_finalized"))

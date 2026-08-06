@@ -5,6 +5,7 @@ import pytest
 from fiftyfm.chart_source import Song
 from fiftyfm.discord import (
     DiscordError,
+    get_poll_results,
     post_failure,
     post_playlist,
     post_poll,
@@ -30,6 +31,12 @@ class FakeSession:
         self.calls = []
 
     def post(self, url, **kwargs):
+        if self.exc:
+            raise self.exc
+        self.calls.append((url, kwargs))
+        return FakeResponse(self.status_code, self.payload)
+
+    def get(self, url, **kwargs):
         if self.exc:
             raise self.exc
         self.calls.append((url, kwargs))
@@ -234,5 +241,81 @@ def test_post_poll_raises_on_error():
             thread_id="99",
             question="q",
             answers=["a"],
+            session=session,
+        )
+
+
+POLL_MESSAGE = {
+    "id": "777",
+    "poll": {
+        "question": {"text": "Favorite song of the week?"},
+        "answers": [
+            {"answer_id": 1, "poll_media": {"text": "Convoy — C.W. McCall"}},
+            {"answer_id": 2, "poll_media": {"text": "Love Hangover — Diana Ross"}},
+            {"answer_id": 3, "poll_media": {"text": "Other — reply in thread"}},
+        ],
+        "results": {
+            "is_finalized": True,
+            "answer_counts": [
+                {"id": 1, "count": 4, "me_voted": False},
+                {"id": 2, "count": 11, "me_voted": False},
+            ],
+        },
+    },
+}
+
+
+def test_get_poll_results_maps_counts_to_answer_text():
+    session = FakeSession(payload=POLL_MESSAGE)
+    counts, finalized = get_poll_results(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_id="99887766",
+        message_id="777",
+        session=session,
+    )
+    assert finalized is True
+    assert counts == {
+        "Convoy — C.W. McCall": 4,
+        "Love Hangover — Diana Ross": 11,
+        "Other — reply in thread": 0,  # no count row means zero votes
+    }
+
+
+def test_get_poll_results_uses_messages_path_with_thread_id():
+    session = FakeSession(payload=POLL_MESSAGE)
+    get_poll_results(
+        "https://discord.com/api/webhooks/1/tok?thread_id=OLD",
+        thread_id="99887766",
+        message_id="777",
+        session=session,
+    )
+    url, _kwargs = session.calls[0]
+    assert url == (
+        "https://discord.com/api/webhooks/1/tok/messages/777"
+        "?thread_id=99887766"
+    )
+
+
+def test_get_poll_results_reports_unfinalized():
+    payload = {"poll": {"answers": [], "results": {"is_finalized": False,
+                                                   "answer_counts": []}}}
+    session = FakeSession(payload=payload)
+    counts, finalized = get_poll_results(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_id="99",
+        message_id="777",
+        session=session,
+    )
+    assert counts == {}
+    assert finalized is False
+
+
+def test_get_poll_results_raises_on_error():
+    session = FakeSession(status_code=404, payload={"message": "Unknown Message"})
+    with pytest.raises(DiscordError):
+        get_poll_results(
+            "https://discord.com/api/webhooks/1/tok",
+            thread_id="99",
+            message_id="777",
             session=session,
         )
