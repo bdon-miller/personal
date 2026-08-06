@@ -13,6 +13,14 @@ _PAREN = re.compile(r"\s*\([^)]*\)")
 # Bare `with` was removed from this alternation: it is part of the title
 # far more often than it credits a feature ("Dancing With Myself",
 # "真夜中のドア～stay with me"), and _PAREN already handles "(feat. X)".
+#
+# normalize() is also applied to song.artist, not just the title, and this
+# regex used to strip bare `with` there too. That was doing real work on
+# Billboard credit strings like "Elton John Duet With Kiki Dee" (now left
+# intact and passed into the strict query in full). Accepted: dropping
+# bare `with` widens artist credits and makes a strict-query miss more
+# likely, but the loose fallback still runs for Billboard, and a miss is
+# preferable to the title corruption the old regex caused.
 _FEAT = re.compile(r"\s+(feat\.?|featuring)\s+.*$", re.IGNORECASE)
 _SPACES = re.compile(r"\s+")
 # Spotify stores the full-width wave dash as an ASCII tilde
@@ -89,15 +97,24 @@ class SpotifyClient:
         return resp.json()
 
     def find_track(self, song: Song, strict_only: bool = False) -> str | None:
-        """The best non-karaoke match for `song`, or None.
+        """The best match for `song`, or None.
 
-        Scans every result rather than trusting the first: for Japanese
-        queries position 0 is often a karaoke pressing while the real
-        recording sits lower in the same response.
+        `strict_only` gates two behaviors together, both scoped to Oricon:
+        it drops the loose-query fallback (the loose query reliably returns
+        a wrong-but-plausible track for Japanese titles, and a wrong track
+        nobody notices is worse than a missing one), and it turns on
+        scanning every result and skipping karaoke/instrumental/cover
+        pressings via `is_blocked()` — position 0 is often a karaoke
+        pressing for Japanese queries while the real recording sits lower
+        in the same response.
 
-        `strict_only` drops the loose fallback. The loose query reliably
-        returns a wrong-but-plausible track for Japanese titles, and a
-        wrong track nobody notices is worse than a missing one.
+        When `strict_only` is False (Billboard), neither behavior applies:
+        the function returns the first result exactly as it did before
+        Oricon support existed. This matters because a Billboard
+        instrumental chart entry's correct top result can legitimately
+        contain "(Instrumental)" or "- Instrumental" in its own title —
+        applying `is_blocked()` there would reject the right track and
+        silently return a cover or re-record instead.
         """
         title = normalize(song.title)
         artist = normalize(song.artist)
@@ -110,7 +127,12 @@ class SpotifyClient:
                 f"{API}/search",
                 params={"q": q, "type": "track", "limit": 5},
             )
-            for item in data.get("tracks", {}).get("items", []):
+            items = data.get("tracks", {}).get("items", [])
+            if not strict_only:
+                if items:
+                    return items[0]["uri"]
+                continue
+            for item in items:
                 if not is_blocked(item.get("name", "")):
                     return item["uri"]
         return None

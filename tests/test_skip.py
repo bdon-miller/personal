@@ -43,7 +43,7 @@ def test_skip_posts_an_alternate_and_leaves_the_cursor_alone(tmp_path):
         notify_failure=lambda *a, **k: None,
     )
     assert code == 0
-    assert posts[0]["chart_name"] == "Oricon Weekly Singles (Shōwa)"
+    assert posts[0]["chart_name"] == "Weekly Singles (Shōwa)"
     assert posts[0]["chart_date"] == FEB14
     st = load_state(path, default_cursor=CFG.start_date)
     assert st.cursor == MAR6                      # unchanged
@@ -109,7 +109,7 @@ def test_skip_dry_run_writes_nothing_and_posts_nothing(tmp_path, capsys):
     )
     assert code == 0
     assert path.read_text() == before
-    assert "Oricon Weekly Singles (Shōwa)" in capsys.readouterr().out
+    assert "Weekly Singles (Shōwa)" in capsys.readouterr().out
 
 
 def test_skip_warns_when_superseding_a_thread_that_already_has_polls(tmp_path, capsys):
@@ -166,7 +166,7 @@ def test_failed_skip_can_retry_and_reuses_its_own_playlist(tmp_path):
     )
     assert code == 0
     # same candidate, retried
-    assert posts[0]["chart_name"] == "Oricon Weekly Singles (Shōwa)"
+    assert posts[0]["chart_name"] == "Weekly Singles (Shōwa)"
     assert spotify_second.created is None  # playlist NOT recreated
     st = load_state(path, default_cursor=CFG.start_date)
     assert st.completed[oricon_key]["posted"] is True
@@ -238,7 +238,7 @@ def test_skip_warns_when_time_jump_reserves_the_same_chart(tmp_path, capsys):
     assert code == 0
     err = capsys.readouterr().err
     assert "no alternate chart exists" in err
-    assert "Oricon Weekly Singles (Shōwa)" in err
+    assert "Weekly Singles (Shōwa)" in err
 
 
 def test_normal_skip_records_slot_consumed(tmp_path):

@@ -23,9 +23,9 @@ def test_playlist_name():
 def test_playlist_name_uses_publisher_and_actual_count():
     assert (
         playlist_name(
-            "Oricon", "Oricon Weekly Singles (Shōwa)", date(1976, 1, 12), 20
+            "Oricon", "Weekly Singles (Shōwa)", date(1976, 1, 12), 20
         )
-        == "Oricon Oricon Weekly Singles (Shōwa) Top 20 — January 12, 1976"
+        == "Oricon Weekly Singles (Shōwa) Top 20 — January 12, 1976"
     )
 
 
@@ -241,8 +241,40 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     hot100_key = run_key("hot-100", date(1976, 1, 3))
     assert hot100_key not in st.completed  # no duplicate playlist/record
     assert st.completed[wildcard_key]["posted"] is True  # original record resumed
-    assert posts[0]["chart_name"] == "Oricon Weekly Singles (Shōwa)"
+    assert posts[0]["chart_name"] == "Weekly Singles (Shōwa)"
     assert st.cursor == date(1976, 1, 24)  # cursor advanced after resume
+
+
+def test_state_key_pins_to_cursor_while_display_uses_actual_chart_date(tmp_path):
+    # The two dates in play: the CURSOR date (a Saturday), which state keys
+    # are built from via run_key, and the ACTUAL chart date returned by the
+    # source (Monday, for Oricon), which is what gets displayed. Billboard
+    # tests never exercise this because FakeSource defaults chart_date to
+    # equal cursor_date — here they are deliberately 9 days apart, as they
+    # are for a real Oricon fetch, so collapsing the two back into one
+    # value would fail these assertions.
+    state_path = tmp_path / "state.json"
+    cursor_date = date(1976, 1, 3)
+    actual_date = date(1976, 1, 12)
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(SONGS, chart_date=actual_date), FakeSpotify(),
+        today=date(2026, 8, 3),  # week 1 -> hot-100
+        notify=lambda *a, **k: posts.append(k),
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+
+    expected_key = run_key("hot-100", cursor_date)
+    st = load_state(state_path, default_cursor=CFG.start_date)
+    assert expected_key in st.completed
+    assert all(not k.endswith(f"@{actual_date.isoformat()}") for k in st.completed)
+    assert st.last_posted_key == expected_key
+
+    kwargs = posts[0]
+    assert "January 12, 1976" in kwargs["thread_title"]
+    assert "January 3, 1976" not in kwargs["thread_title"]
+    assert "1976-01-12" in kwargs["csv_filename"]
 
 
 def test_thread_id_and_last_posted_key_are_recorded(tmp_path):

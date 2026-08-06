@@ -139,7 +139,10 @@ def test_is_blocked_rejects_karaoke_and_covers():
     assert not is_blocked("Plastic Love")
 
 
-def test_find_track_skips_blocked_results():
+def test_find_track_skips_blocked_results_when_strict_only():
+    # is_blocked() filtering is gated on strict_only (Oricon); see
+    # test_find_track_returns_first_result_even_if_blocked_looking below
+    # for proof that Billboard's default behavior is unaffected.
     session = FakeSession()
     client = make_client(session)
     session.handlers[("GET", "https://api.spotify.com/v1/search")] = (
@@ -151,8 +154,31 @@ def test_find_track_skips_blocked_results():
              "artists": [{"name": "THE BLUE HEARTS"}]},
         ]}})
     )
-    uri = client.find_track(Song(1, "リンダリンダ", "THE BLUE HEARTS"))
+    uri = client.find_track(
+        Song(1, "リンダリンダ", "THE BLUE HEARTS"), strict_only=True
+    )
     assert uri == "spotify:track:real"
+
+
+def test_find_track_returns_first_result_even_if_blocked_looking():
+    # strict_only=False is Billboard's default. A Billboard instrumental
+    # chart entry's own correct top result can legitimately contain
+    # "(Instrumental)" — is_blocked() must not apply here, or the right
+    # track gets rejected in favor of a cover/re-record. This proves
+    # Billboard behavior is unchanged by Oricon's strict_only gating.
+    session = FakeSession()
+    client = make_client(session)
+    session.handlers[("GET", "https://api.spotify.com/v1/search")] = (
+        lambda kw: FakeResponse(200, {"tracks": {"items": [
+            {"uri": "spotify:track:instrumental-but-correct",
+             "name": "Song Title (Instrumental)",
+             "artists": [{"name": "Some Artist"}]},
+            {"uri": "spotify:track:wrong-cover", "name": "Song Title",
+             "artists": [{"name": "Cover Band"}]},
+        ]}})
+    )
+    uri = client.find_track(Song(1, "Song Title", "Some Artist"))
+    assert uri == "spotify:track:instrumental-but-correct"
 
 
 def test_find_track_strict_only_skips_loose_query():

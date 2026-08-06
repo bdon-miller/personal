@@ -72,7 +72,7 @@ available_from = 1958-08-04
 [[charts]]
 id = "oricon-showa"
 slug = "oricon-showa"
-display_name = "Oricon Weekly Singles (Shōwa)"
+display_name = "Weekly Singles (Shōwa)"
 available_from = 1976-01-12
 available_until = 1989-01-02
 source = "oricon"

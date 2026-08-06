@@ -91,13 +91,20 @@ available_from = 2020-09-19
 [[charts]]
 id = "oricon-showa"
 slug = "oricon-showa"
-display_name = "Oricon Weekly Singles (Shōwa)"
+display_name = "Weekly Singles (Shōwa)"
 # available_from is the earliest cursor date this chart can serve, not its
 # first publication date. The CSV's real first chart is 1976-01-12, but
 # OriconSource's +/-10-day nearest-Monday mapping resolves the schedule's
 # start_date (1976-01-03, a 9-day distance) to that same chart, and the
 # post displays the real 1976-01-12 date. Backdating this to start_date
 # closes the empty-wildcard-pool gap at the schedule's origin.
+#
+# oricon-showa and oricon-heisei both query the same shared CSV date
+# index (OriconSource does not itself know which era it's serving). It is
+# only these available_from/available_until windows that keep a Shōwa
+# fetch resolving to a Shōwa-era Monday and a Heisei fetch to a
+# Heisei-era one; a future edit that lets the windows overlap could
+# silently post one era's chart under the other's name.
 available_from = 1976-01-03
 available_until = 1989-01-02
 source = "oricon"
@@ -107,7 +114,9 @@ strict_match = true
 [[charts]]
 id = "oricon-heisei"
 slug = "oricon-heisei"
-display_name = "Oricon Weekly Singles (Heisei)"
+display_name = "Weekly Singles (Heisei)"
+# See the era-boundary note on oricon-showa above: this window is what
+# keeps this chart's fetches inside the Heisei era.
 available_from = 1989-01-16
 available_until = 2008-12-29
 source = "oricon"
