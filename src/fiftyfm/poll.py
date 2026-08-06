@@ -62,7 +62,7 @@ def run_poll(
         chart_id, _, iso_date = key.partition("@")
         chart = config.charts[chart_id]
         chart_date = date.fromisoformat(iso_date)
-        songs = source.fetch(chart.slug, chart_date)[:TOP_N]
+        songs = source.fetch(chart, chart_date).songs[:TOP_N]
         if not songs:
             print(f"{key} chart came back empty; nothing to poll")
             return 0

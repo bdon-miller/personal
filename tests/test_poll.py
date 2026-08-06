@@ -103,7 +103,8 @@ def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
         notify_failure=lambda *a, **k: None,
     )
     assert code == 0
-    assert source.fetched == ("hot-100", date(1976, 1, 3))
+    assert source.fetched[0].slug == "hot-100"
+    assert source.fetched[1] == date(1976, 1, 3)
     assert len(posted) == 2
     assert posted[0]["thread_id"] == "99887766"
     assert posted[0]["question"] == "Favorite song of the week?"

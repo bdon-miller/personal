@@ -163,7 +163,8 @@ def run(
             print(f"{key} already completed; nothing to do")
             return 0
 
-        songs = source.fetch(chart.slug, chart_date)[:TOP_N]
+        fetched = source.fetch(chart, chart_date)
+        songs = fetched.songs[:TOP_N]
 
         if dry_run:
             print(f"[dry-run] {name} (slot week {week})")
@@ -275,7 +276,8 @@ def skip(
                 file=sys.stderr,
             )
 
-        songs = source.fetch(chart.slug, chart_date)[:TOP_N]
+        fetched = source.fetch(chart, chart_date)
+        songs = fetched.songs[:TOP_N]
         assert spotify is not None
         playlist_url = post_chart(
             state,

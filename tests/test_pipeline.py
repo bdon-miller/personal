@@ -48,7 +48,8 @@ def test_happy_path_advances_cursor(tmp_path, capsys):
         notify_failure=lambda *a, **k: None,
     )
     assert code == 0
-    assert source.fetched == ("hot-100", date(1976, 1, 3))
+    assert source.fetched[0].slug == "hot-100"
+    assert source.fetched[1] == date(1976, 1, 3)
     name, _desc, uris = spotify.created
     assert name == "Billboard Hot 100 Top 40 — January 3, 1976"
     assert len(uris) == 39  # one miss out of top 40
