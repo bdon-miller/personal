@@ -19,7 +19,7 @@ dev = ["pytest>=8"]
 fiftyfm = "fiftyfm.cli:main"
 
 [tool.setuptools.package-data]
-fiftyfm = ["charts.toml"]
+fiftyfm = ["charts.toml", "data/*.csv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
