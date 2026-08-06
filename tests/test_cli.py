@@ -27,3 +27,19 @@ def test_run_requires_credentials(tmp_path, monkeypatch, capsys):
         monkeypatch.delenv(var, raising=False)
     assert main(["run"]) == 2
     assert "missing" in capsys.readouterr().err.lower()
+
+
+def test_poll_requires_env(monkeypatch, capsys):
+    for var in ("LASTFM_API_KEY", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(var, raising=False)
+    assert main(["poll"]) == 2
+    err = capsys.readouterr().err
+    assert "LASTFM_API_KEY" in err
+
+
+def test_poll_dry_run_skips_env_check(monkeypatch, tmp_path):
+    for var in ("LASTFM_API_KEY", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("FIFTYFM_STATE_PATH", str(tmp_path / "state.json"))
+    # No posted thread yet, so this is a clean no-op rather than an env error.
+    assert main(["poll", "--dry-run"]) == 0
