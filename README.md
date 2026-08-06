@@ -1,10 +1,10 @@
 # fiftyfm
 
-Every week, a systemd timer fetches a historical Billboard chart (starting
-January 1976, advancing 3 chart-weeks per run by default), builds a public
-Spotify playlist of its Top 40, and posts it as a new thread in a Discord
-forum channel. Each post also attaches the chart as a CSV
-(`Track name,Artist name`) that anyone can upload to
+Every week, a systemd timer fetches a historical chart (Billboard, or
+Oricon for Japanese weeks) (starting January 1976, advancing 3 chart-weeks
+per run by default), builds a public Spotify playlist of its Top 40, and
+posts it as a new thread in a Discord forum channel. Each post also attaches
+the chart as a CSV (`Track name,Artist name`) that anyone can upload to
 [TuneMyMusic](https://www.tunemymusic.com/transfer) to build the playlist
 on their own service (Deezer, Qobuz, YouTube Music, ...).
 
@@ -19,7 +19,22 @@ date) using `src/fiftyfm/charts.toml`:
 - Week 3: Hot Rap Songs once the cursor reaches Mar 1989; falls back to
   Soul, then Country
 - Week 4 (and any 5th week): rotates through every other chart the cursor
-  era offers (Easy Listening, Disco, Country, Latin, ...)
+  era offers (Disco, Country, Latin, Oricon Weekly Singles, ...)
+
+## Japanese charts
+
+Two of the wildcard charts are Oricon Weekly Singles, served from a CSV
+shipped inside the package rather than from an API: **Shōwa**
+(1976-01-12 to 1989-01-02, top 20) and **Heisei** (1989-01-16 to
+2008-12-29, top 30). Oricon dates its charts on Monday while the app's
+cursor is a Saturday, so a run resolves to the nearest Oricon Monday
+within 10 days and the post shows that real chart date, not the cursor's.
+
+Expect a lower Spotify match rate on these weeks. Some artists are absent
+from Spotify entirely — SMAP most notably — and those tracks are skipped
+rather than replaced. Japanese searches use strict matching only: the
+loose fallback reliably returns karaoke pressings, and a wrong track
+nobody notices is worse than a missing one.
 
 ## Weekly polls
 
@@ -92,8 +107,11 @@ Verify, then run for real:
     journalctl -u fiftyfm.service
 
 `--dry-run` skips Discord and Spotify writes, but it still performs a real
-Billboard fetch and, for `poll --dry-run`, up to 40 Last.fm lookups - it is
-not side-effect-free against those upstream APIs.
+chart fetch and, for `poll --dry-run`, up to 40 Last.fm lookups - it is
+not side-effect-free against those upstream APIs. Oricon weeks read from
+the packaged CSV, so those fetches touch no network at all. `skip
+--dry-run` now fetches too, which is what lets it show the real chart
+date and track count before you commit to posting.
 
 Upgrading an existing install skips exactly one poll week: the first
 Saturday after upgrade has no `thread_id` recorded for the prior week's
