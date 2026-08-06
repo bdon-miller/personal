@@ -5,7 +5,7 @@ from fiftyfm.chart_source import ChartFetchError, Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import playlist_name, run
 from fiftyfm.spotify import SpotifyError
-from fiftyfm.state import load_state, run_key
+from fiftyfm.state import load_state, run_key, save_state
 
 CFG = load_config()
 ENV = {"DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/1/tok"}
@@ -289,3 +289,51 @@ def test_missing_thread_id_is_not_fatal(tmp_path):
     key = run_key("hot-100", date(1976, 1, 3))
     assert "thread_id" not in st.completed[key]
     assert st.last_posted_key == key
+
+
+def test_recap_is_passed_to_the_new_thread(tmp_path):
+    state_path = tmp_path / "state.json"
+    posts = []
+    # First week: post a thread and record a poll against it.
+    run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: "99887766",
+        notify_failure=lambda *a, **k: None,
+    )
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    st.completed[key]["poll_message_ids"] = {
+        "favorite": "m1", "least_favorite": "m2",
+    }
+    save_state(state_path, st)
+
+    # Second week: the recap must reach post_playlist.
+    run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 10),  # week 2
+        notify=lambda *a, **k: posts.append(k) or "111",
+        notify_failure=lambda *a, **k: None,
+        fetch_results=lambda url, **k: (
+            ({"Song 1 — Artist 1": 12}, True)
+            if k["message_id"] == "m1"
+            else ({"Song 2 — Artist 2": 9}, True)
+        ),
+    )
+    assert "Song 1 — Artist 1 (12 votes)" in posts[0]["recap"]
+
+
+def test_no_recap_on_the_first_ever_run(tmp_path):
+    state_path = tmp_path / "state.json"
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: posts.append(k) or "111",
+        notify_failure=lambda *a, **k: None,
+        fetch_results=lambda url, **k: (_ for _ in ()).throw(
+            AssertionError("nothing to recap")
+        ),
+    )
+    assert code == 0
+    assert posts[0]["recap"] is None

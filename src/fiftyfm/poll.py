@@ -7,7 +7,7 @@ from typing import Mapping
 
 from .chart_source import ChartSource, Song
 from .config import TOP_N, Config
-from .discord import post_failure, post_poll
+from .discord import get_poll_results, post_failure, post_poll
 from .lastfm import playcounts, rank_by_playcount
 from .state import load_state, save_state
 
@@ -97,3 +97,67 @@ def run_poll(
         if webhook:
             notify_failure(webhook, f"fiftyfm poll run failed: {exc}")
         return 1
+
+
+def _top(counts: dict[str, int]) -> tuple[str, int] | None:
+    """The most-picked answer, or None if nothing was picked.
+
+    `max` returns the first maximum, and dict order follows the poll's
+    answer order, so ties resolve to the higher-placed answer.
+    """
+    if not counts or max(counts.values()) == 0:
+        return None
+    return max(counts.items(), key=lambda kv: kv[1])
+
+
+def recap_text(
+    favorite: dict[str, int], least: dict[str, int]
+) -> str | None:
+    """One line summarising last week's two polls, or None if unreportable."""
+    parts = []
+    for label, counts in (
+        ("Favorite", favorite),
+        ("Least favorite", least),
+    ):
+        top = _top(counts)
+        if top is not None:
+            answer, n = top
+            plural = "vote" if n == 1 else "votes"
+            parts.append(f"**{label}:** {answer} ({n} {plural})")
+    if not parts:
+        return None
+    return "**Last week's results** — " + " · ".join(parts)
+
+
+def build_recap(
+    state,
+    webhook_url: str,
+    fetch_results=get_poll_results,
+) -> str | None:
+    """Summarise the previous week's polls; None if not safely reportable.
+
+    Counts are only trusted once Discord marks the poll finalized, so a
+    poll still open reports nothing rather than half the votes.
+    """
+    key = state.last_posted_key
+    if key is None:
+        return None
+    record = state.completed.get(key, {})
+    thread_id = record.get("thread_id")
+    ids = record.get("poll_message_ids") or {}
+    if not thread_id or not ids.get("favorite") or not ids.get("least_favorite"):
+        return None
+    try:
+        favorite, fav_done = fetch_results(
+            webhook_url, thread_id=thread_id, message_id=ids["favorite"]
+        )
+        least, least_done = fetch_results(
+            webhook_url, thread_id=thread_id, message_id=ids["least_favorite"]
+        )
+    except Exception as exc:  # noqa: BLE001 - a recap is never worth failing over
+        print(f"could not read last week's polls: {exc}", file=sys.stderr)
+        return None
+    if not (fav_done and least_done):
+        print(f"polls for {key} are not finalized yet; skipping recap")
+        return None
+    return recap_text(favorite, least)

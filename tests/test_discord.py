@@ -319,3 +319,21 @@ def test_get_poll_results_raises_on_error():
             message_id="777",
             session=session,
         )
+
+
+def test_post_playlist_prepends_recap_to_description():
+    session = FakeSession()
+    post_playlist(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_title="t",
+        chart_name="Hot 100",
+        chart_date=date(1976, 3, 6),
+        songs=SONGS,
+        matched=40,
+        playlist_url="u",
+        recap="**Last week:** Convoy won",
+        session=session,
+    )
+    description = session.calls[0][1]["json"]["embeds"][0]["description"]
+    assert description.startswith("**Last week:** Convoy won")
+    assert "Hot 100" in description  # the chart blurb still follows

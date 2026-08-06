@@ -46,6 +46,7 @@ def post_playlist(
     playlist_url: str,
     csv_filename: str | None = None,
     csv_data: bytes | None = None,
+    recap: str | None = None,
     session=None,
 ) -> str | None:
     session = session or requests.Session()
@@ -66,6 +67,8 @@ def post_playlist(
         f"🔀 Convert for Deezer/Qobuz/YouTube Music: {convert_hint} "
         f"[TuneMyMusic]({TUNEMYMUSIC_URL})"
     )
+    if recap:
+        description = f"{recap}\n\n{description}"
     payload = {
         "thread_name": thread_title,
         "embeds": [

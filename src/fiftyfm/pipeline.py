@@ -7,7 +7,14 @@ from typing import Mapping
 
 from .chart_source import ChartSource
 from .config import TOP_N, Config
-from .discord import human_date, post_failure, post_playlist, songs_csv
+from .discord import (
+    get_poll_results,
+    human_date,
+    post_failure,
+    post_playlist,
+    songs_csv,
+)
+from .poll import build_recap
 from .schedule import advance, select_chart, snap_to_saturday, week_of_month
 from .spotify import SpotifyClient, SpotifyError
 from .state import load_state, run_key, save_state
@@ -27,10 +34,12 @@ def run(
     dry_run: bool = False,
     notify=post_playlist,
     notify_failure=post_failure,
+    fetch_results=get_poll_results,
 ) -> int:
     webhook = env.get("DISCORD_WEBHOOK_URL", "")
     try:
         state = load_state(state_path, default_cursor=config.start_date)
+        recap = None if dry_run else build_recap(state, webhook, fetch_results)
         chart_date = snap_to_saturday(state.cursor)
 
         resume_key = next(
@@ -107,6 +116,7 @@ def run(
             playlist_url=playlist_url,
             csv_filename=f"{chart.id}-{chart_date.isoformat()}.csv",
             csv_data=songs_csv(songs).encode(),
+            recap=recap,
         )
         state.completed[key]["posted"] = True
         if thread_id:

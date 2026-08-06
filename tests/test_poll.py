@@ -6,7 +6,9 @@ from fiftyfm.poll import (
     MAX_ANSWER_CHARS,
     OTHER_ANSWER,
     answer_text,
+    build_recap,
     poll_answers,
+    recap_text,
     run_poll,
 )
 from fiftyfm.state import load_state, run_key, save_state
@@ -213,3 +215,91 @@ def test_run_poll_slices_to_top_40(tmp_path):
     )
     # Highest playcount among ranks 1-40 is rank 40, not rank 100.
     assert posted[0]["answers"][0] == "Song 40 — Artist 40"
+
+
+def test_recap_text_names_both_winners():
+    text = recap_text(
+        {"Convoy — C.W. McCall": 4, "Love Hangover — Diana Ross": 11},
+        {"Convoy — C.W. McCall": 9, "Love Hangover — Diana Ross": 1},
+    )
+    assert "Love Hangover — Diana Ross (11 votes)" in text
+    assert "Convoy — C.W. McCall (9 votes)" in text
+    assert "Favorite" in text and "Least favorite" in text
+
+
+def test_recap_text_uses_singular_vote():
+    text = recap_text({"Convoy — C.W. McCall": 1}, {})
+    assert "(1 vote)" in text
+    assert "votes" not in text
+
+
+def test_recap_text_none_when_nobody_voted():
+    assert recap_text({"Convoy — C.W. McCall": 0}, {}) is None
+    assert recap_text({}, {}) is None
+
+
+def test_recap_text_breaks_ties_by_answer_order():
+    # Dict order follows the poll's answer order, so the higher-placed
+    # answer wins a tie.
+    text = recap_text({"First — A": 3, "Second — B": 3}, {})
+    assert "First — A (3 votes)" in text
+    assert "Second — B" not in text
+
+
+def test_build_recap_reads_both_polls(tmp_path):
+    path = seed_state(tmp_path, poll_posted=True)
+    state = load_state(path, default_cursor=date(1976, 1, 3))
+    state.completed[KEY]["poll_message_ids"] = {
+        "favorite": "m1", "least_favorite": "m2",
+    }
+    fetched = []
+
+    def fake_fetch(url, *, thread_id, message_id):
+        fetched.append((thread_id, message_id))
+        if message_id == "m1":
+            return {"Song 1 — Artist 1": 12}, True
+        return {"Song 2 — Artist 2": 9}, True
+
+    text = build_recap(state, "https://discord.com/api/webhooks/1/tok",
+                       fetch_results=fake_fetch)
+    assert "Song 1 — Artist 1 (12 votes)" in text
+    assert "Song 2 — Artist 2 (9 votes)" in text
+    assert fetched == [("99887766", "m1"), ("99887766", "m2")]
+
+
+def test_build_recap_none_when_not_finalized(tmp_path):
+    path = seed_state(tmp_path, poll_posted=True)
+    state = load_state(path, default_cursor=date(1976, 1, 3))
+    state.completed[KEY]["poll_message_ids"] = {
+        "favorite": "m1", "least_favorite": "m2",
+    }
+    assert build_recap(
+        state, "https://discord.com/api/webhooks/1/tok",
+        fetch_results=lambda url, **k: ({"Song 1 — Artist 1": 3}, False),
+    ) is None
+
+
+def test_build_recap_none_when_fetch_fails(tmp_path):
+    path = seed_state(tmp_path, poll_posted=True)
+    state = load_state(path, default_cursor=date(1976, 1, 3))
+    state.completed[KEY]["poll_message_ids"] = {
+        "favorite": "m1", "least_favorite": "m2",
+    }
+
+    def boom(url, **k):
+        raise RuntimeError("discord is down")
+
+    assert build_recap(
+        state, "https://discord.com/api/webhooks/1/tok", fetch_results=boom
+    ) is None
+
+
+def test_build_recap_none_without_poll_message_ids(tmp_path):
+    path = seed_state(tmp_path)
+    state = load_state(path, default_cursor=date(1976, 1, 3))
+    assert build_recap(
+        state, "https://discord.com/api/webhooks/1/tok",
+        fetch_results=lambda url, **k: (_ for _ in ()).throw(
+            AssertionError("nothing to fetch")
+        ),
+    ) is None
