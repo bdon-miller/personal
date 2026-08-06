@@ -41,20 +41,27 @@ def _missing_env(required, env) -> list[str]:
     return [v for v in required if not env.get(v)]
 
 
+def _spotify_or_exit(env) -> tuple[SpotifyClient | None, int | None]:
+    """(client, None) when credentials are present; (None, 2) after reporting."""
+    missing = _missing_env(REQUIRED_ENV, env)
+    if missing:
+        print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
+        return None, 2
+    return SpotifyClient(
+        env["SPOTIFY_CLIENT_ID"],
+        env["SPOTIFY_CLIENT_SECRET"],
+        env["SPOTIFY_REFRESH_TOKEN"],
+    ), None
+
+
 def _cmd_run(args) -> int:
     config = load_config(_charts_path(args.charts))
     env = os.environ
     spotify = None
     if not args.dry_run:
-        missing = _missing_env(REQUIRED_ENV, env)
-        if missing:
-            print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
-            return 2
-        spotify = SpotifyClient(
-            env["SPOTIFY_CLIENT_ID"],
-            env["SPOTIFY_CLIENT_SECRET"],
-            env["SPOTIFY_REFRESH_TOKEN"],
-        )
+        spotify, err = _spotify_or_exit(env)
+        if err is not None:
+            return err
     return pipeline_run(
         config,
         _state_path(),
@@ -71,15 +78,9 @@ def _cmd_skip(args) -> int:
     env = os.environ
     spotify = None
     if not args.dry_run:
-        missing = _missing_env(REQUIRED_ENV, env)
-        if missing:
-            print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
-            return 2
-        spotify = SpotifyClient(
-            env["SPOTIFY_CLIENT_ID"],
-            env["SPOTIFY_CLIENT_SECRET"],
-            env["SPOTIFY_REFRESH_TOKEN"],
-        )
+        spotify, err = _spotify_or_exit(env)
+        if err is not None:
+            return err
     return skip_run(
         config,
         _state_path(),

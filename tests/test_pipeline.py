@@ -161,7 +161,10 @@ def test_discord_failure_then_retry_reuses_playlist(tmp_path):
     # State file should exist with playlist_url, matched count, and posted=False
     st = json.loads(state_path.read_text())
     key = run_key("hot-100", date(1976, 1, 3))
-    assert st["completed"][key]["playlist_url"] == "https://open.spotify.com/playlist/pl1"
+    assert (
+        st["completed"][key]["playlist_url"]
+        == "https://open.spotify.com/playlist/pl1"
+    )
     assert st["completed"][key]["matched"] == 39  # original match count preserved
     assert st["completed"][key]["posted"] is False
     assert st["cursor"] == "1976-01-03"  # cursor NOT advanced
@@ -334,6 +337,34 @@ def test_recap_failure_outside_build_recaps_own_try_does_not_fail_the_run(
     # available until 1981), per charts.toml's slot priority list.
     new_key = run_key("soul", date(1976, 1, 24))
     assert st.completed[new_key]["posted"] is True
+
+
+def test_run_resume_path_ignores_slot_consumed(tmp_path):
+    # Fix 4: slot_consumed only governs a *fresh* chart selection. A resume
+    # is finishing an in-flight chart from a previous failed post and must
+    # keep using its recorded week regardless of any leftover slot_consumed
+    # - and must leave that leftover untouched, since it still belongs to
+    # whatever future fresh selection has not happened yet.
+    state_path = tmp_path / "state.json"
+    state = load_state(state_path, default_cursor=date(1976, 1, 3))
+    key = run_key("hot-100", date(1976, 1, 3))
+    state.completed[key] = {
+        "playlist_url": "u", "matched": 40, "posted": False, "week": 1,
+    }
+    state.slot_consumed = 3
+    save_state(state_path, state)
+
+    posts = []
+    code = run(
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: posts.append(k) or "tid",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    assert posts[0]["chart_name"] == "Hot 100"  # resumed at its recorded week
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    assert st.slot_consumed == 3  # untouched by the resume path
 
 
 def test_no_recap_on_the_first_ever_run(tmp_path):

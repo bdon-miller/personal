@@ -5,8 +5,8 @@ from datetime import date
 from pathlib import Path
 from typing import Mapping
 
-from .chart_source import ChartSource
-from .config import TOP_N, Config
+from .chart_source import ChartSource, Song
+from .config import TOP_N, ChartDef, Config
 from .discord import (
     get_poll_results,
     human_date,
@@ -23,7 +23,12 @@ from .schedule import (
     week_of_month,
 )
 from .spotify import SpotifyClient, SpotifyError
-from .state import load_state, run_key, save_state
+from .state import State, load_state, run_key, save_state
+
+# How many periods a skip's time-jump may walk forward looking for a week it
+# has not already posted. A rewound cursor should fail loudly, not spin
+# through decades of history.
+MAX_JUMPS = 8
 
 
 def playlist_name(display_name: str, chart_date: date) -> str:
@@ -31,15 +36,15 @@ def playlist_name(display_name: str, chart_date: date) -> str:
 
 
 def post_chart(
-    state,
+    state: State,
     state_path: Path,
     env: Mapping[str, str],
     spotify: SpotifyClient,
     *,
-    chart,
+    chart: ChartDef,
     chart_date: date,
     week: int,
-    songs: list,
+    songs: list[Song],
     recap: str | None = None,
     notify=post_playlist,
 ) -> str:
@@ -147,6 +152,8 @@ def run(
             week = state.completed[resume_key].get("week", week_of_month(today))
         else:
             week = week_of_month(today)
+            if state.slot_consumed is not None and week <= state.slot_consumed:
+                week = state.slot_consumed + 1
             chart = select_chart(config, chart_date, week, state.wildcard_index)
         key = run_key(chart.id, chart_date)
         name = playlist_name(chart.display_name, chart_date)
@@ -178,6 +185,8 @@ def run(
             notify=notify,
         )
         state.cursor = advance(state.cursor, config.weeks_per_run)
+        if resume_key is None:
+            state.slot_consumed = None
         save_state(state_path, state)
         print(f"done: {name} -> {playlist_url}")
         return 0
@@ -203,8 +212,9 @@ def skip(
 
     Runs after a Monday post, so the cursor has already advanced. A
     replacement found at the same historical date leaves the cursor alone;
-    when no candidate remains, jump one period forward and post what next
-    Monday would have.
+    when no candidate remains, jump forward and post what a future Monday
+    would have, stepping over any target week already posted (up to
+    `MAX_JUMPS` periods) and leaving the cursor beyond wherever it landed.
     """
     webhook = env.get("DISCORD_WEBHOOK_URL", "")
     try:
@@ -220,13 +230,13 @@ def skip(
                 file=sys.stderr,
             )
 
-        _old_id, _, iso = key.partition("@")
+        old_id, _, iso = key.partition("@")
         chart_date = date.fromisoformat(iso)
         posted_week = old.get("week", week_of_month(today))
         exclude = {
             k.partition("@")[0]
-            for k in state.completed
-            if k.endswith(f"@{iso}")
+            for k, rec in state.completed.items()
+            if k.endswith(f"@{iso}") and isinstance(rec, dict) and rec.get("posted")
         }
 
         found = next_chart(
@@ -236,7 +246,19 @@ def skip(
         if found is None:
             chart_date = state.cursor
             week = week_of_month(today)
-            chart = select_chart(config, chart_date, week, state.wildcard_index)
+            for hop in range(MAX_JUMPS):
+                if hop:
+                    chart_date = advance(chart_date, config.weeks_per_run)
+                chart = select_chart(config, chart_date, week, state.wildcard_index)
+                rec = state.completed.get(run_key(chart.id, chart_date))
+                if not (isinstance(rec, dict) and rec.get("posted")):
+                    break
+            else:
+                raise ValueError(
+                    f"every week from {state.cursor.isoformat()} through "
+                    f"{chart_date.isoformat()} is already posted; "
+                    "move the cursor with `fiftyfm set-cursor`"
+                )
         else:
             chart, week, state.wildcard_index = found
 
@@ -245,6 +267,13 @@ def skip(
             suffix = " [time-jump]" if jumped else ""
             print(f"[dry-run] skip -> {name} (slot week {week}){suffix}")
             return 0
+
+        if jumped and chart.id == old_id:
+            print(
+                f"warning: no alternate chart exists at {iso}; posting "
+                f"{chart.display_name} again for {chart_date.isoformat()}",
+                file=sys.stderr,
+            )
 
         songs = source.fetch(chart.slug, chart_date)[:TOP_N]
         assert spotify is not None
@@ -260,7 +289,9 @@ def skip(
             notify=notify,
         )
         if jumped:
-            state.cursor = advance(state.cursor, config.weeks_per_run)
+            state.cursor = advance(chart_date, config.weeks_per_run)
+        else:
+            state.slot_consumed = week
         save_state(state_path, state)
         print(f"done: {name} -> {playlist_url}")
         return 0

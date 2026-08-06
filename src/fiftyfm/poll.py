@@ -149,6 +149,8 @@ def build_recap(
     thread_id = record.get("thread_id")
     ids = record.get("poll_message_ids") or {}
     if not thread_id or not ids.get("favorite") or not ids.get("least_favorite"):
+        print(f"{key} has no thread_id or poll_message_ids; skipping recap",
+              file=sys.stderr)
         return None
     try:
         favorite, fav_done = fetch_results(

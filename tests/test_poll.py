@@ -5,6 +5,7 @@ from fakes import FakeSource, FakeSpotify
 from fiftyfm.chart_source import Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import run as pipeline_run
+from fiftyfm.pipeline import skip as pipeline_skip
 from fiftyfm.poll import (
     MAX_ANSWER_CHARS,
     OTHER_ANSWER,
@@ -313,6 +314,73 @@ def test_build_recap_none_without_poll_message_ids(tmp_path):
             AssertionError("nothing to fetch")
         ),
     ) is None
+
+
+def test_skip_then_run_poll_then_run_compose_through_one_state_file(tmp_path):
+    """skip moves last_posted_key to the replacement thread specifically so
+    Saturday's polls target it and the next Monday recaps it, not the
+    superseded original. Task 3 only tested that the field moves; this
+    drives run_poll and the next pipeline_run for real against one state
+    file and checks what they actually did with it - poll.py and
+    pipeline.py have no compile-time coupling, so a break here is silent.
+    """
+    state_path = tmp_path / "state.json"
+
+    # Monday: the chart run posts a thread nobody wants.
+    code = pipeline_run(
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
+        today=date(2026, 8, 3),  # week 1 -> hot-100
+        notify=lambda *a, **k: "tid-original",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    original_key = run_key("hot-100", date(1976, 1, 3))
+
+    # The operator skips it; last_posted_key moves to the replacement.
+    code = pipeline_skip(
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
+        today=date(2026, 8, 3),
+        notify=lambda *a, **k: "tid-replacement",
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    replacement_key = st.last_posted_key
+    assert replacement_key != original_key
+    assert st.completed[replacement_key]["thread_id"] == "tid-replacement"
+
+    # Saturday: polls must land in the replacement's thread, not the
+    # original's.
+    posted = []
+    code = run_poll(
+        CFG, state_path, ENV, FakeSource(FORTY),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: (posted.append(k), f"msg{len(posted)}")[1],
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    assert posted[0]["thread_id"] == "tid-replacement"
+    st = load_state(state_path, default_cursor=date(1976, 1, 3))
+    ids = st.completed[replacement_key]["poll_message_ids"]
+    assert ids == {"favorite": "msg1", "least_favorite": "msg2"}
+    assert st.completed[original_key].get("poll_posted") is not True
+
+    # Next Monday: the recap must derive from the replacement's poll
+    # message ids and reach notify.
+    week2_posts = []
+    code = pipeline_run(
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
+        today=date(2026, 8, 10),  # week 2
+        notify=lambda *a, **k: week2_posts.append(k) or "tid-week2",
+        notify_failure=lambda *a, **k: None,
+        fetch_results=lambda url, **k: (
+            ({"Song 1 — Artist 1": 12}, True)
+            if k["message_id"] == ids["favorite"]
+            else ({"Song 2 — Artist 2": 9}, True)
+        ),
+    )
+    assert code == 0
+    assert "Song 1 — Artist 1 (12 votes)" in week2_posts[0]["recap"]
 
 
 def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):

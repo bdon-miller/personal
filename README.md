@@ -39,12 +39,28 @@ superseded Discord thread and Spotify playlist are not deleted — remove those 
 hand. Note that the replacement thread carries no "last week's results" recap,
 so deleting the old thread loses that line.
 
+The replacement will usually appear again the following Monday under a
+different historical date — the rotation is forward-only, so a skip just
+moves the repeat rather than removing it. `skip` records which slot it
+consumed so the next Monday's run advances past it, which avoids the repeat
+for a week-1 or week-2 skip. It cannot avoid it for a skip that lands on a
+single-member wildcard pool — every wildcard week until Disco unlocks on
+1976-08-28 — since there is only one chart in the pool to draw from either way.
+
 When every available chart has already been posted for that week, `skip`
 instead jumps forward by `weeks_per_run` and posts the next period's chart,
-advancing the cursor.
+advancing the cursor. On a wildcard week before 1976-08-28 there is no
+alternate chart at all, so this is exactly what happens: `skip` jumps forward
+and posts the **same** chart again at a later date. Run `fiftyfm skip
+--dry-run` first to check — it shows the chart it would post and a
+`[time-jump]` marker when this is about to happen.
 
-Use `fiftyfm skip --dry-run` to preview what would be posted without creating
-playlists or Discord threads.
+If the week it jumps to has already been posted — which normally only
+happens after a backwards `fiftyfm set-cursor` — it keeps stepping forward
+a period at a time until it finds a free week, then leaves the cursor past
+wherever it landed. After eight such steps it gives up and fails rather
+than walking through years of history; move the cursor by hand at that
+point.
 
 ## Install on a Linux server
 

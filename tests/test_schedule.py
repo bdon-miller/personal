@@ -117,6 +117,14 @@ def test_next_chart_availability_uses_chart_date_not_a_later_cursor():
     ) is None
 
 
+def test_next_chart_returns_none_when_no_chart_is_available_at_all():
+    # Before 1958-08-04 (hot-100's own available_from) nothing in the config
+    # is available yet, so select_chart raises ValueError on the very first
+    # wildcard-pool probe. next_chart must turn that into None, not a raise -
+    # exhaustion is the signal to time-jump, same as a plain excluded pool.
+    assert next_chart(CFG, date(1958, 1, 1), 4, 0, set()) is None
+
+
 def test_next_chart_is_forward_only():
     # Slot 1 and 2 charts must NOT be offered when skipping slot 3, even
     # though they are available and unexcluded at this date.
