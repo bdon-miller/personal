@@ -1,44 +1,16 @@
 import json
 from datetime import date
 
+from fakes import FakeSource, FakeSpotify
+
 from fiftyfm.chart_source import ChartFetchError, Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import playlist_name, run
-from fiftyfm.spotify import SpotifyError
 from fiftyfm.state import load_state, run_key, save_state
 
 CFG = load_config()
 ENV = {"DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/1/tok"}
 SONGS = [Song(i, f"Song {i}", f"Artist {i}") for i in range(1, 101)]
-
-
-class FakeSource:
-    def __init__(self, songs=None, exc=None):
-        self.songs, self.exc = songs or SONGS, exc
-
-    def fetch(self, slug, chart_date):
-        if self.exc:
-            raise self.exc
-        self.fetched = (slug, chart_date)
-        return self.songs
-
-
-class FakeSpotify:
-    def __init__(self, miss_titles=(), error_titles=()):
-        self.miss_titles = miss_titles
-        self.error_titles = error_titles
-        self.created = None
-
-    def find_track(self, song):
-        if song.title in self.error_titles:
-            raise SpotifyError(f"boom on {song.title}")
-        if song.title in self.miss_titles:
-            return None
-        return f"spotify:track:{song.rank}"
-
-    def create_playlist(self, name, description, uris):
-        self.created = (name, description, uris)
-        return "https://open.spotify.com/playlist/pl1"
 
 
 def test_playlist_name():
@@ -51,7 +23,7 @@ def test_playlist_name():
 def test_notify_receives_csv_attachment(tmp_path):
     posts = []
     code = run(
-        CFG, tmp_path / "state.json", ENV, FakeSource(), FakeSpotify(),
+        CFG, tmp_path / "state.json", ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),  # week 1 -> hot-100
         notify=lambda *a, **k: posts.append(k),
         notify_failure=lambda *a, **k: None,
@@ -67,7 +39,7 @@ def test_notify_receives_csv_attachment(tmp_path):
 
 def test_happy_path_advances_cursor(tmp_path, capsys):
     state_path = tmp_path / "state.json"
-    source, spotify = FakeSource(), FakeSpotify(miss_titles=("Song 7",))
+    source, spotify = FakeSource(SONGS), FakeSpotify(miss_titles=("Song 7",))
     posts = []
     code = run(
         CFG, state_path, ENV, source, spotify,
@@ -89,7 +61,7 @@ def test_happy_path_advances_cursor(tmp_path, capsys):
 def test_wildcard_week_increments_index(tmp_path):
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 24),  # week 4 -> wildcard
         notify=lambda *a, **k: None,
         notify_failure=lambda *a, **k: None,
@@ -106,20 +78,20 @@ def test_replay_of_posted_run_is_noop(tmp_path):
         notify=lambda *a, **k: None,
         notify_failure=lambda *a, **k: None,
     )
-    run(CFG, state_path, ENV, FakeSource(), FakeSpotify(), **args)
+    run(CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(), **args)
     st1 = json.loads(state_path.read_text())
     # simulate operator resetting cursor to replay the same chart-date
     st1["cursor"] = "1976-01-03"
     state_path.write_text(json.dumps(st1))
     spotify = FakeSpotify()
-    code = run(CFG, state_path, ENV, FakeSource(), spotify, **args)
+    code = run(CFG, state_path, ENV, FakeSource(SONGS), spotify, **args)
     assert code == 0
     assert spotify.created is None  # nothing re-created
 
 
 def test_per_song_spotify_error_is_a_miss_not_fatal(tmp_path, capsys):
     state_path = tmp_path / "state.json"
-    source = FakeSource()
+    source = FakeSource(SONGS)
     spotify = FakeSpotify(error_titles=("Song 3",))
     posts = []
     code = run(
@@ -154,7 +126,7 @@ def test_fetch_failure_reports_and_returns_1(tmp_path):
 def test_dry_run_writes_nothing(tmp_path, capsys):
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), None,
+        CFG, state_path, ENV, FakeSource(SONGS), None,
         today=date(2026, 8, 3), dry_run=True,
         notify=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no post")),
         notify_failure=lambda *a, **k: None,
@@ -168,7 +140,7 @@ def test_dry_run_writes_nothing(tmp_path, capsys):
 
 def test_discord_failure_then_retry_reuses_playlist(tmp_path):
     state_path = tmp_path / "state.json"
-    source = FakeSource()
+    source = FakeSource(SONGS)
     spotify_first = FakeSpotify(miss_titles=("Song 7",))
 
     # First run: playlist created successfully, but Discord post fails
@@ -213,7 +185,7 @@ def test_discord_failure_then_retry_reuses_playlist(tmp_path):
 
 def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
     state_path = tmp_path / "state.json"
-    source = FakeSource()
+    source = FakeSource(SONGS)
     spotify_first = FakeSpotify()
 
     class DiscordError(Exception):
@@ -263,7 +235,7 @@ def test_cross_week_retry_resumes_same_chart_not_a_new_one(tmp_path):
 def test_thread_id_and_last_posted_key_are_recorded(tmp_path):
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),  # week 1 -> hot-100
         notify=lambda *a, **k: "99887766",
         notify_failure=lambda *a, **k: None,
@@ -279,7 +251,7 @@ def test_missing_thread_id_is_not_fatal(tmp_path):
     # An older webhook response, or one without a body, still posts fine.
     state_path = tmp_path / "state.json"
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),
         notify=lambda *a, **k: None,
         notify_failure=lambda *a, **k: None,
@@ -296,7 +268,7 @@ def test_recap_is_passed_to_the_new_thread(tmp_path):
     posts = []
     # First week: post a thread and record a poll against it.
     run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),
         notify=lambda *a, **k: "99887766",
         notify_failure=lambda *a, **k: None,
@@ -310,7 +282,7 @@ def test_recap_is_passed_to_the_new_thread(tmp_path):
 
     # Second week: the recap must reach post_playlist.
     run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 10),  # week 2
         notify=lambda *a, **k: posts.append(k) or "111",
         notify_failure=lambda *a, **k: None,
@@ -345,7 +317,7 @@ def test_recap_failure_outside_build_recaps_own_try_does_not_fail_the_run(
     )
     posts = []
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 10),  # week 2
         notify=lambda *a, **k: posts.append(k) or "111",
         notify_failure=lambda *a, **k: (_ for _ in ()).throw(
@@ -368,7 +340,7 @@ def test_no_recap_on_the_first_ever_run(tmp_path):
     state_path = tmp_path / "state.json"
     posts = []
     code = run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(SONGS), FakeSpotify(),
         today=date(2026, 8, 3),
         notify=lambda *a, **k: posts.append(k) or "111",
         notify_failure=lambda *a, **k: None,

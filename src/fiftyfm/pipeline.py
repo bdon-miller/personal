@@ -15,7 +15,13 @@ from .discord import (
     songs_csv,
 )
 from .poll import build_recap
-from .schedule import advance, select_chart, snap_to_saturday, week_of_month
+from .schedule import (
+    advance,
+    next_chart,
+    select_chart,
+    snap_to_saturday,
+    week_of_month,
+)
 from .spotify import SpotifyClient, SpotifyError
 from .state import load_state, run_key, save_state
 
@@ -179,4 +185,87 @@ def run(
         print(f"run failed: {exc}", file=sys.stderr)
         if webhook:
             notify_failure(webhook, f"fiftyfm weekly run failed: {exc}")
+        return 1
+
+
+def skip(
+    config: Config,
+    state_path: Path,
+    env: Mapping[str, str],
+    source: ChartSource,
+    spotify: SpotifyClient | None,
+    today: date,
+    dry_run: bool = False,
+    notify=post_playlist,
+    notify_failure=post_failure,
+) -> int:
+    """Post a replacement for the chart the last run posted.
+
+    Runs after a Monday post, so the cursor has already advanced. A
+    replacement found at the same historical date leaves the cursor alone;
+    when no candidate remains, jump one period forward and post what next
+    Monday would have.
+    """
+    webhook = env.get("DISCORD_WEBHOOK_URL", "")
+    try:
+        state = load_state(state_path, default_cursor=config.start_date)
+        key = state.last_posted_key
+        if key is None:
+            print("nothing posted yet; nothing to skip")
+            return 0
+        old = state.completed.get(key, {})
+        if old.get("poll_posted"):
+            print(
+                f"warning: {key} already has polls; they will never be recapped",
+                file=sys.stderr,
+            )
+
+        _old_id, _, iso = key.partition("@")
+        chart_date = date.fromisoformat(iso)
+        posted_week = old.get("week", week_of_month(today))
+        exclude = {
+            k.partition("@")[0]
+            for k in state.completed
+            if k.endswith(f"@{iso}")
+        }
+
+        found = next_chart(
+            config, chart_date, posted_week, state.wildcard_index, exclude
+        )
+        jumped = found is None
+        if found is None:
+            chart_date = state.cursor
+            week = week_of_month(today)
+            chart = select_chart(config, chart_date, week, state.wildcard_index)
+        else:
+            chart, week, state.wildcard_index = found
+
+        name = playlist_name(chart.display_name, chart_date)
+        if dry_run:
+            suffix = " [time-jump]" if jumped else ""
+            print(f"[dry-run] skip -> {name} (slot week {week}){suffix}")
+            return 0
+
+        songs = source.fetch(chart.slug, chart_date)[:TOP_N]
+        assert spotify is not None
+        playlist_url = post_chart(
+            state,
+            state_path,
+            env,
+            spotify,
+            chart=chart,
+            chart_date=chart_date,
+            week=week,
+            songs=songs,
+            notify=notify,
+        )
+        if jumped:
+            state.cursor = advance(state.cursor, config.weeks_per_run)
+        save_state(state_path, state)
+        print(f"done: {name} -> {playlist_url}")
+        return 0
+    except Exception as exc:  # noqa: BLE001 - top-level run boundary
+        print(f"skip failed: {exc}", file=sys.stderr)
+        if webhook:
+            notify_failure(webhook, f"fiftyfm skip failed: {exc}")
         return 1

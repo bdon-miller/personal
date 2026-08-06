@@ -1,5 +1,7 @@
 from datetime import date
 
+from fakes import FakeSource, FakeSpotify
+
 from fiftyfm.chart_source import Song
 from fiftyfm.config import load_config
 from fiftyfm.pipeline import run as pipeline_run
@@ -22,33 +24,6 @@ ENV = {
     "LASTFM_API_KEY": "key123",
 }
 KEY = run_key("hot-100", date(1976, 1, 3))
-
-
-class FakeSource:
-    def __init__(self, songs=None, exc=None):
-        self.songs = songs if songs is not None else FORTY
-        self.exc = exc
-        self.fetched = None
-
-    def fetch(self, slug, chart_date):
-        if self.exc:
-            raise self.exc
-        self.fetched = (slug, chart_date)
-        return self.songs
-
-
-class FakeSpotify:
-    """Minimal enough for pipeline.run: never misses, records the create."""
-
-    def __init__(self):
-        self.created = None
-
-    def find_track(self, song):
-        return f"spotify:track:{song.rank}"
-
-    def create_playlist(self, name, description, uris):
-        self.created = (name, description, uris)
-        return "https://open.spotify.com/playlist/pl1"
 
 
 def seed_state(tmp_path, *, thread_id="99887766", poll_posted=False):
@@ -118,7 +93,7 @@ def test_poll_answers_handles_short_charts():
 
 def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
     path = seed_state(tmp_path)
-    source = FakeSource()
+    source = FakeSource(FORTY)
     posted = []
     code = run_poll(
         CFG, path, ENV, source,
@@ -146,7 +121,7 @@ def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
 def test_run_poll_is_idempotent(tmp_path):
     path = seed_state(tmp_path, poll_posted=True)
     code = run_poll(
-        CFG, path, ENV, FakeSource(),
+        CFG, path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(
             AssertionError("must not double-post")
@@ -159,7 +134,7 @@ def test_run_poll_is_idempotent(tmp_path):
 def test_run_poll_skips_threads_without_an_id(tmp_path, capsys):
     path = seed_state(tmp_path, thread_id=None)
     code = run_poll(
-        CFG, path, ENV, FakeSource(),
+        CFG, path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(
             AssertionError("no thread to post into")
@@ -175,7 +150,7 @@ def test_run_poll_skips_threads_without_an_id(tmp_path, capsys):
 def test_run_poll_noop_without_last_posted_key(tmp_path, capsys):
     path = tmp_path / "state.json"
     code = run_poll(
-        CFG, path, ENV, FakeSource(),
+        CFG, path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(AssertionError("nothing to poll")),
         notify_failure=lambda *a, **k: (_ for _ in ()).throw(
@@ -204,7 +179,7 @@ def test_run_poll_reports_fetch_failure(tmp_path):
 def test_run_poll_dry_run_posts_nothing(tmp_path, capsys):
     path = seed_state(tmp_path)
     code = run_poll(
-        CFG, path, ENV, FakeSource(), dry_run=True,
+        CFG, path, ENV, FakeSource(FORTY), dry_run=True,
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (_ for _ in ()).throw(AssertionError("no post")),
         notify_failure=lambda *a, **k: None,
@@ -352,7 +327,7 @@ def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     # Week 1 Monday: the chart run posts a new thread.
     week1_posts = []
     code = pipeline_run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
         today=date(2026, 8, 3),  # week 1 -> hot-100
         notify=lambda *a, **k: week1_posts.append(k) or "99887766",
         notify_failure=lambda *a, **k: None,
@@ -370,7 +345,7 @@ def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     # run just wrote (the lost-update failure mode Fix 1 addresses).
     posted = []
     code = run_poll(
-        CFG, state_path, ENV, FakeSource(),
+        CFG, state_path, ENV, FakeSource(FORTY),
         playcounts_fn=lambda api_key, songs: {},
         post=lambda url, **k: (posted.append(k), f"msg{len(posted)}")[1],
         notify_failure=lambda *a, **k: None,
@@ -390,7 +365,7 @@ def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     # using the exact message ids run_poll actually wrote above.
     week2_posts = []
     code = pipeline_run(
-        CFG, state_path, ENV, FakeSource(), FakeSpotify(),
+        CFG, state_path, ENV, FakeSource(FORTY), FakeSpotify(),
         today=date(2026, 8, 10),  # week 2
         notify=lambda *a, **k: week2_posts.append(k) or "111",
         notify_failure=lambda *a, **k: None,
