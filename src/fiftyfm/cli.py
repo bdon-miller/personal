@@ -39,12 +39,16 @@ def _charts_path(arg: str | None) -> Path | None:
     return Path(env) if env else None
 
 
+def _missing_env(required, env) -> list[str]:
+    return [v for v in required if not env.get(v)]
+
+
 def _cmd_run(args) -> int:
     config = load_config(_charts_path(args.charts))
     env = os.environ
     spotify = None
     if not args.dry_run:
-        missing = [v for v in REQUIRED_ENV if not env.get(v)]
+        missing = _missing_env(REQUIRED_ENV, env)
         if missing:
             print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
             return 2
@@ -68,7 +72,7 @@ def _cmd_poll(args) -> int:
     config = load_config(_charts_path(args.charts))
     env = os.environ
     if not args.dry_run:
-        missing = [v for v in POLL_REQUIRED_ENV if not env.get(v)]
+        missing = _missing_env(POLL_REQUIRED_ENV, env)
         if missing:
             print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
             return 2
