@@ -1,0 +1,11 @@
+[Unit]
+Description=fiftyfm weekly song polls
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/fiftyfm/env
+Environment=FIFTYFM_STATE_PATH=/var/lib/fiftyfm/state.json
+StateDirectory=fiftyfm
+ExecStart=/opt/fiftyfm/.venv/bin/fiftyfm poll

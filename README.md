@@ -21,6 +21,15 @@ date) using `src/fiftyfm/charts.toml`:
 - Week 4 (and any 5th week): rotates through every other chart the cursor
   era offers (Easy Listening, Disco, Country, Latin, ...)
 
+## Weekly polls
+
+Every Saturday at 08:00, a second timer posts a favorite and a
+least-favorite poll into that week's thread. Choices are the nine
+most-played songs from the week's chart by Last.fm playcount, plus
+`Other — reply in thread`; both polls allow multiple selections. The polls
+close Monday at 08:00 — an hour before Monday's new thread opens with the
+results.
+
 ## Install on a Linux server
 
     git clone <this repo> && cd <repo>
@@ -37,9 +46,14 @@ Then fill in `/etc/fiftyfm/env`:
 2. **Discord**: in a **forum channel**'s settings, create a webhook and
    paste its URL.
 
+3. **Last.fm**: create an API key at
+   https://www.last.fm/api/account/create (free, no OAuth). Put it in
+   `LASTFM_API_KEY`.
+
 Verify without side effects, then for real:
 
     /opt/fiftyfm/.venv/bin/fiftyfm run --dry-run
+    /opt/fiftyfm/.venv/bin/fiftyfm poll --dry-run
     sudo systemctl start fiftyfm.service
     journalctl -u fiftyfm.service
 
