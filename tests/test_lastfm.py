@@ -1,5 +1,10 @@
 from fiftyfm.chart_source import Song
-from fiftyfm.lastfm import LASTFM_API, playcounts, rank_by_playcount
+from fiftyfm.lastfm import (
+    LASTFM_API,
+    playcounts,
+    rank_by_least_played,
+    rank_by_playcount,
+)
 
 
 class FakeResponse:
@@ -79,4 +84,20 @@ def test_rank_by_playcount_puts_unknown_songs_last():
 def test_rank_by_playcount_falls_back_to_chart_rank_when_counts_empty():
     # Total Last.fm failure must still yield a usable ballot.
     ordered = rank_by_playcount(SONGS, {})
+    assert [s.rank for s in ordered] == [1, 2, 3]
+
+
+def test_rank_by_least_played_orders_ascending():
+    ordered = rank_by_least_played(SONGS, {1: 1200, 2: 34000, 3: 7})
+    assert [s.rank for s in ordered] == [3, 1, 2]
+
+
+def test_rank_by_least_played_puts_unknown_songs_first():
+    # An untraceable song counts as zero plays, so it leads the ballot.
+    ordered = rank_by_least_played(SONGS, {3: 50})
+    assert [s.rank for s in ordered] == [1, 2, 3]  # 1 and 2 tie at 0, chart order
+
+
+def test_rank_by_least_played_falls_back_to_chart_rank_when_counts_empty():
+    ordered = rank_by_least_played(SONGS, {})
     assert [s.rank for s in ordered] == [1, 2, 3]

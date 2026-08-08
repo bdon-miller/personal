@@ -60,3 +60,14 @@ def rank_by_playcount(songs: list[Song], counts: dict[int, int]) -> list[Song]:
     intended fallback when Last.fm is unavailable.
     """
     return sorted(songs, key=lambda s: (-counts.get(s.rank, 0), s.rank))
+
+
+def rank_by_least_played(songs: list[Song], counts: dict[int, int]) -> list[Song]:
+    """Songs by ascending playcount, ties broken by ascending chart rank.
+
+    A song Last.fm knows nothing about counts as zero plays and so sorts
+    first, which matches the intent: an untraceable track is an obscure
+    one. An empty `counts` therefore yields plain chart order, the same
+    fallback as `rank_by_playcount`.
+    """
+    return sorted(songs, key=lambda s: (counts.get(s.rank, 0), s.rank))

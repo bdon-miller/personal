@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from .chart_source import default_source
 from .config import load_config
 from .pipeline import run as pipeline_run
 from .pipeline import skip as skip_run
+from .poll import repoll_least_favorite as repoll_run
 from .poll import run_poll as poll_run
 from .schedule import snap_to_saturday
 from .spotify import TOKEN_URL, SpotifyClient
@@ -109,6 +110,24 @@ def _cmd_poll(args) -> int:
     )
 
 
+def _cmd_repoll(args) -> int:
+    config = load_config(_charts_path(args.charts))
+    env = os.environ
+    if not args.dry_run:
+        missing = _missing_env(POLL_REQUIRED_ENV, env)
+        if missing:
+            print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
+            return 2
+    return repoll_run(
+        config,
+        _state_path(),
+        env,
+        default_source(),
+        now=datetime.now(),
+        dry_run=args.dry_run,
+    )
+
+
 def _cmd_set_cursor(args) -> int:
     config = load_config(_charts_path(args.charts))
     path = _state_path()
@@ -182,6 +201,13 @@ def main(argv: list[str] | None = None) -> int:
     p_poll = sub.add_parser("poll", help="post this week's follow-up polls")
     p_poll.add_argument("--dry-run", action="store_true")
     p_poll.set_defaults(func=_cmd_poll)
+
+    p_repoll = sub.add_parser(
+        "repoll-least-favorite",
+        help="replace this week's least-favorite poll (discards its votes)",
+    )
+    p_repoll.add_argument("--dry-run", action="store_true")
+    p_repoll.set_defaults(func=_cmd_repoll)
 
     p_skip = sub.add_parser(
         "skip", help="replace the chart the last run posted"

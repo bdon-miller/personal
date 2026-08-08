@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from fakes import FakeSource, FakeSpotify
 
@@ -11,8 +11,11 @@ from fiftyfm.poll import (
     OTHER_ANSWER,
     answer_text,
     build_recap,
+    hours_until_close,
+    least_favorite_answers,
     poll_answers,
     recap_text,
+    repoll_least_favorite,
     run_poll,
 )
 from fiftyfm.state import load_state, run_key, save_state
@@ -92,6 +95,39 @@ def test_poll_answers_handles_short_charts():
     assert answers[-1] == OTHER_ANSWER
 
 
+def test_least_favorite_answers_takes_bottom_nine_by_playcount_plus_other():
+    counts = {i: i * 100 for i in range(1, 41)}
+    answers = least_favorite_answers(FORTY, counts)
+    assert len(answers) == 10
+    assert answers[0] == "Song 1 — Artist 1"
+    assert answers[8] == "Song 9 — Artist 9"
+    assert answers[9] == OTHER_ANSWER
+
+
+def test_least_favorite_answers_are_disjoint_from_the_favorite_ballot():
+    counts = {i: i * 100 for i in range(1, 41)}
+    assert not set(poll_answers(FORTY, counts)[:-1]) & set(
+        least_favorite_answers(FORTY, counts)[:-1]
+    )
+
+
+def test_least_favorite_answers_falls_back_to_chart_order_without_counts():
+    # Every song ties at zero plays, so chart order is all that's left.
+    answers = least_favorite_answers(FORTY, {})
+    assert answers[:3] == [
+        "Song 1 — Artist 1",
+        "Song 2 — Artist 2",
+        "Song 3 — Artist 3",
+    ]
+    assert answers[-1] == OTHER_ANSWER
+
+
+def test_least_favorite_answers_handles_short_charts():
+    answers = least_favorite_answers(FORTY[:4], {})
+    assert len(answers) == 5
+    assert answers[-1] == OTHER_ANSWER
+
+
 def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
     path = seed_state(tmp_path)
     source = FakeSource(FORTY)
@@ -109,9 +145,12 @@ def test_run_poll_posts_two_polls_into_the_thread(tmp_path):
     assert posted[0]["thread_id"] == "99887766"
     assert posted[0]["question"] == "Favorite song of the week?"
     assert posted[1]["question"] == "Least favorite song of the week?"
-    assert posted[0]["answers"] == posted[1]["answers"]
+    # Songs 1 and 2 are the only ones Last.fm knows, so they lead the
+    # favorite ballot and are the two the least-favorite ballot excludes.
     assert posted[0]["answers"][0] == "Song 1 — Artist 1"
     assert posted[0]["answers"][-1] == OTHER_ANSWER
+    assert posted[1]["answers"][0] == "Song 3 — Artist 3"
+    assert posted[1]["answers"][-1] == OTHER_ANSWER
     st = load_state(path, default_cursor=date(1976, 1, 3))
     assert st.completed[KEY]["poll_posted"] is True
     assert st.completed[KEY]["poll_message_ids"] == {
@@ -190,6 +229,8 @@ def test_run_poll_dry_run_posts_nothing(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Song 1 — Artist 1" in out
     assert OTHER_ANSWER in out
+    assert "Favorite song of the week?" in out
+    assert "Least favorite song of the week?" in out
     st = load_state(path, default_cursor=date(1976, 1, 3))
     assert "poll_posted" not in st.completed[KEY]
 
@@ -474,3 +515,120 @@ def test_pipeline_and_run_poll_compose_through_one_state_file(tmp_path):
     # available until 1981), per charts.toml's slot priority list.
     week2_key = run_key("soul", date(1976, 1, 24))
     assert st.last_posted_key == week2_key
+
+
+def test_hours_until_close_counts_to_monday_eight():
+    # Saturday 14:30 → Monday 08:00 is 41.5h; floored so the poll closes
+    # before the 09:00 recap rather than after it.
+    assert hours_until_close(datetime(2026, 8, 8, 14, 30)) == 41
+
+
+def test_hours_until_close_rolls_past_a_monday_that_already_closed():
+    assert hours_until_close(datetime(2026, 8, 10, 9, 0)) == 167
+
+
+def test_hours_until_close_never_returns_zero():
+    assert hours_until_close(datetime(2026, 8, 10, 7, 59)) == 1
+
+
+def test_repoll_replaces_the_least_favorite_poll(tmp_path):
+    path = seed_state(tmp_path, poll_posted=True)
+    st = load_state(path, default_cursor=date(1976, 1, 3))
+    st.completed[KEY]["poll_message_ids"] = {
+        "favorite": "msg1", "least_favorite": "msg2"
+    }
+    save_state(path, st)
+    posted, deleted = [], []
+    code = repoll_least_favorite(
+        CFG, path, ENV, FakeSource(FORTY),
+        now=datetime(2026, 8, 8, 14, 30),
+        playcounts_fn=lambda api_key, songs: {1: 500, 2: 400},
+        post=lambda url, **k: (posted.append(k), "msg3")[1],
+        delete=lambda url, **k: deleted.append(k),
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    assert len(posted) == 1
+    assert posted[0]["question"] == "Least favorite song of the week?"
+    assert posted[0]["answers"][0] == "Song 3 — Artist 3"
+    assert posted[0]["duration"] == 41
+    assert deleted == [{"thread_id": "99887766", "message_id": "msg2"}]
+    st = load_state(path, default_cursor=date(1976, 1, 3))
+    assert st.completed[KEY]["poll_message_ids"] == {
+        "favorite": "msg1", "least_favorite": "msg3"
+    }
+
+
+def test_repoll_records_the_new_poll_even_when_the_delete_fails(tmp_path):
+    # A stale extra poll is recoverable by hand; a recap pointing at a
+    # deleted message is not.
+    path = seed_state(tmp_path, poll_posted=True)
+    st = load_state(path, default_cursor=date(1976, 1, 3))
+    st.completed[KEY]["poll_message_ids"] = {
+        "favorite": "msg1", "least_favorite": "msg2"
+    }
+    save_state(path, st)
+    code = repoll_least_favorite(
+        CFG, path, ENV, FakeSource(FORTY),
+        now=datetime(2026, 8, 8, 14, 30),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: "msg3",
+        delete=lambda url, **k: (_ for _ in ()).throw(RuntimeError("403")),
+        notify_failure=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("a failed delete is not a run failure")
+        ),
+    )
+    assert code == 0
+    st = load_state(path, default_cursor=date(1976, 1, 3))
+    assert st.completed[KEY]["poll_message_ids"]["least_favorite"] == "msg3"
+
+
+def test_repoll_refuses_when_no_polls_were_posted(tmp_path, capsys):
+    path = seed_state(tmp_path)
+    code = repoll_least_favorite(
+        CFG, path, ENV, FakeSource(FORTY),
+        now=datetime(2026, 8, 8, 14, 30),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: (_ for _ in ()).throw(AssertionError("no post")),
+        delete=lambda url, **k: (_ for _ in ()).throw(AssertionError("no delete")),
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    assert "fiftyfm poll" in capsys.readouterr().out
+
+
+def test_repoll_skips_polls_posted_without_message_ids(tmp_path, capsys):
+    path = seed_state(tmp_path, poll_posted=True)
+    code = repoll_least_favorite(
+        CFG, path, ENV, FakeSource(FORTY),
+        now=datetime(2026, 8, 8, 14, 30),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: (_ for _ in ()).throw(AssertionError("no post")),
+        delete=lambda url, **k: (_ for _ in ()).throw(AssertionError("no delete")),
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    assert "no least-favorite poll to replace" in capsys.readouterr().out
+
+
+def test_repoll_dry_run_changes_nothing(tmp_path, capsys):
+    path = seed_state(tmp_path, poll_posted=True)
+    st = load_state(path, default_cursor=date(1976, 1, 3))
+    st.completed[KEY]["poll_message_ids"] = {
+        "favorite": "msg1", "least_favorite": "msg2"
+    }
+    save_state(path, st)
+    code = repoll_least_favorite(
+        CFG, path, ENV, FakeSource(FORTY), dry_run=True,
+        now=datetime(2026, 8, 8, 14, 30),
+        playcounts_fn=lambda api_key, songs: {},
+        post=lambda url, **k: (_ for _ in ()).throw(AssertionError("no post")),
+        delete=lambda url, **k: (_ for _ in ()).throw(AssertionError("no delete")),
+        notify_failure=lambda *a, **k: None,
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Least favorite song of the week?" in out
+    assert "41h" in out
+    st = load_state(path, default_cursor=date(1976, 1, 3))
+    assert st.completed[KEY]["poll_message_ids"]["least_favorite"] == "msg2"

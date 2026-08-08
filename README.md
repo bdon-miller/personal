@@ -39,11 +39,21 @@ nobody notices is worse than a missing one.
 ## Weekly polls
 
 Every Saturday at 08:00, a second timer posts a favorite and a
-least-favorite poll into that week's thread. Choices are the nine
-most-played songs from the week's chart by Last.fm playcount, plus
-`Other — reply in thread`; both polls allow multiple selections. The polls
+least-favorite poll into that week's thread. The favorite poll's choices
+are the nine most-played songs from the week's chart by Last.fm
+playcount; the least-favorite poll's are the nine least-played, least
+played first. Both add `Other — reply in thread` and allow multiple
+selections. The polls
 close Monday at 08:00 — an hour before Monday's new thread opens with the
 results.
+
+To rebuild the least-favorite ballot after the polls have gone out, run
+`fiftyfm repoll-least-favorite`. Discord cannot edit a live poll, so this
+posts a replacement and deletes the original — **any votes already cast on
+the least-favorite poll are lost.** The replacement is sized to close at
+the same Monday 08:00 as the poll it replaces, so the recap still finds it
+finalized. Use `--dry-run` to see the new ballot first. The favorite poll
+is left untouched.
 
 ## Skipping a chart
 
