@@ -5,6 +5,7 @@ import pytest
 from fiftyfm.chart_source import Song
 from fiftyfm.discord import (
     DiscordError,
+    delete_message,
     get_poll_results,
     post_failure,
     post_playlist,
@@ -40,6 +41,9 @@ class FakeSession:
         return self._record(url, **kwargs)
 
     def post(self, url, **kwargs):
+        return self._record(url, **kwargs)
+
+    def delete(self, url, **kwargs):
         return self._record(url, **kwargs)
 
 
@@ -355,3 +359,39 @@ def test_post_playlist_prepends_recap_to_description():
     description = session.calls[0][1]["json"]["embeds"][0]["description"]
     assert description.startswith("**Last week:** Convoy won")
     assert "Hot 100" in description  # the chart blurb still follows
+
+
+def test_delete_message_targets_the_thread_scoped_message_path():
+    session = FakeSession(status_code=204)
+    delete_message(
+        "https://discord.com/api/webhooks/1/tok?thread_id=OLD",
+        thread_id="99887766",
+        message_id="777",
+        session=session,
+    )
+    url, _kwargs = session.calls[0]
+    assert url == (
+        "https://discord.com/api/webhooks/1/tok/messages/777"
+        "?thread_id=99887766"
+    )
+
+
+def test_delete_message_treats_404_as_already_gone():
+    session = FakeSession(status_code=404)
+    delete_message(
+        "https://discord.com/api/webhooks/1/tok",
+        thread_id="99",
+        message_id="777",
+        session=session,
+    )
+
+
+def test_delete_message_raises_on_other_errors():
+    session = FakeSession(status_code=403)
+    with pytest.raises(DiscordError):
+        delete_message(
+            "https://discord.com/api/webhooks/1/tok",
+            thread_id="99",
+            message_id="777",
+            session=session,
+        )

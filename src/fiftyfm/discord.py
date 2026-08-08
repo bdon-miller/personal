@@ -141,6 +141,33 @@ def post_poll(
     return resp.json()["id"]
 
 
+def delete_message(
+    webhook_url: str,
+    *,
+    thread_id: str,
+    message_id: str,
+    session=None,
+) -> None:
+    """Delete a message this webhook sent.
+
+    A 404 is success: the message is already gone, which is the state the
+    caller wanted. Deleting a poll discards the votes cast on it - Discord
+    offers no way to edit one in place.
+    """
+    session = session or requests.Session()
+    url = (
+        f"{_webhook_base(webhook_url)}/messages/{message_id}"
+        f"?thread_id={thread_id}"
+    )
+    resp = session.delete(url, timeout=30)
+    if resp.status_code == 404:
+        return
+    if resp.status_code >= 300:
+        raise DiscordError(
+            f"message delete returned {resp.status_code}: {resp.text}"
+        )
+
+
 def get_poll_results(
     webhook_url: str,
     *,

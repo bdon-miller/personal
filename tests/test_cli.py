@@ -71,3 +71,18 @@ def test_skip_dry_run_skips_the_env_check(tmp_path, monkeypatch):
     monkeypatch.setenv("FIFTYFM_STATE_PATH", str(tmp_path / "state.json"))
     # Nothing posted yet, so this is a clean no-op rather than an env error.
     assert main(["skip", "--dry-run"]) == 0
+
+
+def test_repoll_requires_env(monkeypatch, capsys):
+    for var in ("LASTFM_API_KEY", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(var, raising=False)
+    assert main(["repoll-least-favorite"]) == 2
+    assert "DISCORD_WEBHOOK_URL" in capsys.readouterr().err
+
+
+def test_repoll_dry_run_skips_env_check(monkeypatch, tmp_path):
+    for var in ("LASTFM_API_KEY", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("FIFTYFM_STATE_PATH", str(tmp_path / "state.json"))
+    # No posted thread yet, so this is a clean no-op rather than an env error.
+    assert main(["repoll-least-favorite", "--dry-run"]) == 0
