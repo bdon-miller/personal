@@ -5,13 +5,37 @@ set -euo pipefail
 APP_DIR=/opt/fiftyfm
 ENV_FILE=/etc/fiftyfm/env
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYTHON="${PYTHON:-python3}"
+python_ok() {
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null
+}
 
-if ! "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
-    echo "error: fiftyfm needs Python >= 3.11; '$PYTHON' is $("$PYTHON" -V 2>&1)." >&2
-    echo "Install a newer Python (e.g. apt install python3.11 python3.11-venv" >&2
-    echo "via the deadsnakes PPA on Ubuntu, or dnf install python3.11) and" >&2
-    echo "re-run as: PYTHON=python3.11 sudo -E ./install.sh" >&2
+# Without an explicit PYTHON, look for a >= 3.11 interpreter: first the one
+# the existing install was built with (sudo's secure_path often hides it),
+# then versioned names on PATH, then standalone builds under /opt/python.
+if [[ -z "${PYTHON:-}" ]]; then
+    candidates=()
+    if [[ -f "$APP_DIR/.venv/pyvenv.cfg" ]]; then
+        home="$(sed -n 's/^home *= *//p' "$APP_DIR/.venv/pyvenv.cfg")"
+        [[ -n "$home" ]] && candidates+=("$home/python3")
+    fi
+    candidates+=(python3.14 python3.13 python3.12 python3.11)
+    while IFS= read -r p; do
+        candidates+=("$p")
+    done < <(ls -d /opt/python/*/bin/python3 2>/dev/null | sort -rV)
+    candidates+=(python3)
+    for c in "${candidates[@]}"; do
+        if python_ok "$c"; then
+            PYTHON="$c"
+            break
+        fi
+    done
+fi
+
+if [[ -z "${PYTHON:-}" ]] || ! python_ok "$PYTHON"; then
+    echo "error: fiftyfm needs Python >= 3.11 and none was found." >&2
+    echo "Install one (e.g. apt install python3.11 python3.11-venv via the" >&2
+    echo "deadsnakes PPA on Ubuntu, or dnf install python3.11) and re-run, or" >&2
+    echo "point at it by full path: sudo PYTHON=/path/to/python3.11 ./install.sh" >&2
     exit 1
 fi
 
