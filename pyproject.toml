@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Weekly historical Billboard/Oricon chart -> Spotify playlist -> Discord"
 requires-python = ">=3.11"
 dependencies = [
-    "billboard.py>=7.0",
+    "beautifulsoup4>=4.12",
     "requests>=2.31",
 ]
 

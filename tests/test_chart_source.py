@@ -11,46 +11,88 @@ HOT100 = ChartDef(
 )
 
 
-class FakeEntry:
-    def __init__(self, rank, title, artist):
-        self.rank, self.title, self.artist = rank, title, artist
+def _row(rank, title, artist):
+    # Trimmed from the real billboard.com markup, including the merged
+    # LW/PEAK/WEEKS cell that broke billboard.py.
+    return f"""
+<ul class="o-chart-results-list-row // lrv-a-unstyle-list">
+  <li class="o-chart-results-list__item"><span class="c-label">\n\t{rank}\n</span></li>
+  <li class="o-chart-results-list__item"></li>
+  <li class="o-chart-results-list__item"></li>
+  <li class="a-chart-result-item-container"><ul>
+    <li class="o-chart-results-list__item">
+      <h3 class="c-title" id="title-of-a-story">\n\t\t{title}\t\t\n</h3>
+      <span class="c-label">\n<a href="#">{artist}</a> </span>
+    </li>
+    <li>LW\n\n\t1\n\tPEAK\n\t1\n\tWEEKS ON CHART\n\t11</li>
+  </ul></li>
+</ul>"""
 
 
-def test_fetch_maps_entries(monkeypatch):
-    def fake_chart_data(slug, date=None, timeout=None):
-        assert slug == "hot-100"
-        assert date == "1976-03-06"
-        return [FakeEntry(1, "December, 1963 (Oh, What A Night)", "Four Seasons"),
-                FakeEntry(2, "All By Myself", "Eric Carmen")]
+PAGE = "<html><body>" + _row(
+    1, "December, 1963 (Oh, What A Night)", "Four Seasons"
+) + _row(2, "All By Myself", "Eric Carmen") + "</body></html>"
 
-    monkeypatch.setattr(cs.billboard, "ChartData", fake_chart_data)
-    got = cs.BillboardSource().fetch(HOT100, date(1976, 3, 6))
-    assert got.songs[0] == cs.Song(1, "December, 1963 (Oh, What A Night)", "Four Seasons")
+
+class FakeResponse:
+    def __init__(self, text, status=200):
+        self.text, self.status = text, status
+
+    def raise_for_status(self):
+        if self.status >= 400:
+            raise RuntimeError(f"HTTP {self.status}")
+
+
+class FakeSession:
+    def __init__(self, response=None, exc=None):
+        self.response, self.exc, self.urls = response, exc, []
+
+    def get(self, url, timeout=None):
+        self.urls.append(url)
+        if self.exc:
+            raise self.exc
+        return self.response
+
+
+def test_parse_billboard_reads_rank_title_artist():
+    assert cs.parse_billboard(PAGE) == [
+        cs.Song(1, "December, 1963 (Oh, What A Night)", "Four Seasons"),
+        cs.Song(2, "All By Myself", "Eric Carmen"),
+    ]
+
+
+def test_fetch_requests_dated_chart_url():
+    session = FakeSession(FakeResponse(PAGE))
+    got = cs.BillboardSource(session).fetch(HOT100, date(1976, 3, 6))
+    assert session.urls == ["https://www.billboard.com/charts/hot-100/1976-03-06/"]
     assert len(got.songs) == 2
 
 
-def test_fetch_echoes_requested_date(monkeypatch):
-    monkeypatch.setattr(
-        cs.billboard, "ChartData",
-        lambda *a, **k: [FakeEntry(1, "T", "A")],
+def test_fetch_echoes_requested_date():
+    got = cs.BillboardSource(FakeSession(FakeResponse(PAGE))).fetch(
+        HOT100, date(1976, 3, 6)
     )
-    got = cs.BillboardSource().fetch(HOT100, date(1976, 3, 6))
     assert got.chart_date == date(1976, 3, 6)
 
 
-def test_fetch_empty_chart_raises(monkeypatch):
-    monkeypatch.setattr(cs.billboard, "ChartData", lambda *a, **k: [])
+def test_fetch_empty_chart_raises():
+    source = cs.BillboardSource(FakeSession(FakeResponse("<html></html>")))
+    with pytest.raises(cs.ChartFetchError, match="came back empty"):
+        source.fetch(HOT100, date(1976, 3, 6))
+
+
+def test_fetch_http_error_raises():
+    source = cs.BillboardSource(FakeSession(FakeResponse("", status=404)))
     with pytest.raises(cs.ChartFetchError):
-        cs.BillboardSource().fetch(HOT100, date(1976, 3, 6))
+        source.fetch(HOT100, date(1976, 3, 6))
 
 
-def test_fetch_wraps_exceptions(monkeypatch):
-    def boom(*a, **k):
-        raise ConnectionError("billboard.com unreachable")
-
-    monkeypatch.setattr(cs.billboard, "ChartData", boom)
+def test_fetch_wraps_exceptions():
+    source = cs.BillboardSource(
+        FakeSession(exc=ConnectionError("billboard.com unreachable"))
+    )
     with pytest.raises(cs.ChartFetchError):
-        cs.BillboardSource().fetch(HOT100, date(1976, 3, 6))
+        source.fetch(HOT100, date(1976, 3, 6))
 
 
 def test_routing_source_dispatches_on_chart_source():
