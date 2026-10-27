@@ -36,7 +36,8 @@ def select_chart(
     available_ids = {c.id for c in available}
 
     taken: list[str] = []
-    for slot_num, priority in enumerate(config.slots, start=1):
+    picks: list[str | None] = []
+    for priority in config.slots:
         pick = next(
             (cid for cid in priority
              if cid in available_ids and cid not in taken),
@@ -44,17 +45,21 @@ def select_chart(
         )
         if pick is not None:
             taken.append(pick)
-        if slot_num == week:
-            if pick is None:
-                raise ValueError(
-                    f"no chart available for slot {week} at {cursor.isoformat()}"
-                )
-            return config.charts[pick]
+        picks.append(pick)
 
+    if week <= len(config.slots) and picks[week - 1] is not None:
+        return config.charts[picks[week - 1]]
     pool = [c for c in available if c.id not in taken]
     if not pool:
         raise ValueError(f"wildcard pool empty at cursor {cursor.isoformat()}")
-    return pool[wildcard_index % len(pool)]
+    if week > len(config.slots):
+        return pool[wildcard_index % len(pool)]
+    # A slot with nothing available borrows from the wildcard pool, starting
+    # one past the wildcard week's own pick so a month repeats a chart only
+    # when the pool has a single member. It is not added to `taken`, so the
+    # wildcard week's pool - and skip's walk through it - is unchanged.
+    empty_before = picks[:week - 1].count(None)
+    return pool[(wildcard_index + 1 + empty_before) % len(pool)]
 
 
 def next_chart(

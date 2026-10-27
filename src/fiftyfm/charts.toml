@@ -44,7 +44,7 @@ available_from = 1981-03-21
 id = "latin"
 slug = "latin-songs"
 display_name = "Hot Latin Songs"
-available_from = 1986-09-06
+available_from = 1986-09-20  # first full chart; earlier weeks list only the #1
 
 [[charts]]
 id = "modern-rock"

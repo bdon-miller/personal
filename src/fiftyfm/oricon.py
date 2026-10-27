@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import bisect
 import csv
 import io
 import sys
-from datetime import date, timedelta
+from datetime import date
 from importlib import resources
 
-from .chart_source import ChartFetch, ChartFetchError, Song
+from .chart_source import ChartFetch, ChartFetchError, Song, nearest_date
 from .config import ChartDef
 
 # The widest gap between a cursor Saturday and a real Oricon Monday across
@@ -75,25 +74,8 @@ class OriconSource:
             self._dates = sorted(self._data())
         return self._dates
 
-    def _nearest(self, wanted: date) -> date | None:
-        """The closest chart date to `wanted`, ties going to the earlier."""
-        dates = self._keys()
-        if not dates:
-            return None
-        i = bisect.bisect_left(dates, wanted)
-        best: date | None = None
-        best_delta: timedelta | None = None
-        for j in (i - 1, i):
-            if 0 <= j < len(dates):
-                delta = abs(dates[j] - wanted)
-                if best_delta is None or delta < best_delta:
-                    best, best_delta = dates[j], delta
-        if best_delta is None or best_delta.days > TOLERANCE_DAYS:
-            return None
-        return best
-
     def fetch(self, chart: ChartDef, chart_date: date) -> ChartFetch:
-        actual = self._nearest(chart_date)
+        actual = nearest_date(self._keys(), chart_date, TOLERANCE_DAYS)
         if actual is None:
             raise ChartFetchError(
                 f"no oricon chart within {TOLERANCE_DAYS} days of "
