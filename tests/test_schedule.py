@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from fiftyfm.config import load_config
+from fiftyfm.config import ChartDef, Config, load_config
 from fiftyfm.schedule import (
     advance,
     is_available,
@@ -149,3 +149,42 @@ def test_next_chart_is_forward_only():
     chart, week, _wi = next_chart(CFG, date(1976, 3, 6), 3, 0, {"country"})
     assert chart.id not in ("hot-100", "soul")
     assert week == 4
+
+
+
+def _borrowing_config():
+    """Two slots, where slot 2's only chart is not yet available."""
+    def chart(cid, start):
+        return ChartDef(id=cid, slug=cid, display_name=cid, available_from=start)
+    charts = {c.id: c for c in [
+        chart("a", date(1976, 1, 3)), chart("late", date(1990, 1, 6)),
+        chart("w1", date(1976, 1, 3)), chart("w2", date(1976, 1, 3)),
+        chart("w3", date(1976, 1, 3)),
+    ]}
+    return Config(charts=charts, slots=[["a"], ["late"]],
+                  start_date=date(1976, 1, 3), weeks_per_run=3)
+
+
+def test_empty_slot_borrows_the_wildcard_chart_after_week_4s():
+    cfg = _borrowing_config()
+    cursor = date(1980, 3, 1)
+    for wi in range(6):
+        slot2 = select_chart(cfg, cursor, 2, wi).id
+        wild = select_chart(cfg, cursor, 3, wi).id
+        assert slot2 != wild
+        assert {slot2, wild} <= {"w1", "w2", "w3"}
+
+
+def test_empty_slot_with_a_pool_of_one_repeats_it():
+    cfg = _borrowing_config()
+    cfg = Config(charts={k: v for k, v in cfg.charts.items() if k in ("a", "late", "w1")},
+                 slots=cfg.slots, start_date=cfg.start_date, weeks_per_run=3)
+    cursor = date(1980, 3, 1)
+    assert select_chart(cfg, cursor, 2, 0).id == "w1"
+    assert select_chart(cfg, cursor, 3, 0).id == "w1"
+
+
+def test_next_chart_reaches_a_borrowed_slot():
+    chart, week, wi = next_chart(_borrowing_config(), date(1980, 3, 1), 1, 0, {"a"})
+    assert (week, wi) == (2, 0)
+    assert chart.id in {"w1", "w2", "w3"}

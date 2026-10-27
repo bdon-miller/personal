@@ -21,6 +21,33 @@ date) using `src/fiftyfm/charts.toml`:
 - Week 4 (and any 5th week): rotates through every other chart the cursor
   era offers (Disco, Country, Latin, Oricon Weekly Singles, ...)
 
+A week whose slot has nothing available borrows from the wildcard pool
+instead, taking the chart after the one week 4 would get, so a month only
+repeats a chart when the pool has one member.
+
+## Where Billboard charts come from
+
+Every Billboard chart is read from `src/fiftyfm/data/billboard_archive.csv.gz`
+first, a top-40 archive shipped in the package. Only a week missing from it
+is fetched from billboard.com, and if that page has no chart rows - as on
+2026-10-26, when the site served empty chart sections for hours - from the
+newest [Wayback Machine](https://web.archive.org/) copy saved before then.
+
+The archive is built by `scripts/build_billboard_archive.py` from:
+
+- **Hot 100**: [mhollingshead/billboard-hot-100](https://github.com/mhollingshead/billboard-hot-100).
+- **Soul, Latin, Pop, Hot Rock and Dance/Electronic through 2018**: the
+  [pdp2600/chartscraper](https://github.com/pdp2600/chartscraper) scrape.
+- **Hot Country Singles 1973-2008**: the
+  [American Country Countdown wiki](https://american-country-countdown.fandom.com/)
+  (CC-BY-SA), whose countdown was Billboard's country chart until 2009.
+- **Every other week**: billboard.com, fetched by
+  `scripts/fetch_billboard_weeks.py`, which walks each Billboard chart week
+  the archive lacks and records it for the build script to merge.
+
+Archive charts resolve a run to the nearest chart within 3 days and the
+post shows that real date - soul charts before Nov 1978 are dated Monday.
+
 ## Japanese charts
 
 Two of the wildcard charts are Oricon Weekly Singles, served from a CSV
